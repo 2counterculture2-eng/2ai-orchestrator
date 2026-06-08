@@ -39,7 +39,7 @@ class BaseWorker(ABC):
     def __init__(self, config: Config, db: LearningDB):
         self.config = config
         self.db = db
-        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
+        self.client = anthropic.Anthropic(api_key=config.anthropic_api_key) if config.anthropic_api_key else None
 
     @abstractmethod
     async def execute(self, task: dict) -> TaskResult:

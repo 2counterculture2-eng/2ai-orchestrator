@@ -10,7 +10,7 @@ from dataclasses import dataclass
 @dataclass
 class Config:
     # Claude API
-    anthropic_api_key: str
+    anthropic_api_key: str = ""
     claude_haiku_model: str = "claude-haiku-4-5-20251001"
     claude_sonnet_model: str = "claude-sonnet-4-6"
     claude_opus_model: str = "claude-opus-4-8"
@@ -47,7 +47,7 @@ class Config:
     @classmethod
     def from_env(cls) -> "Config":
         return cls(
-            anthropic_api_key=_require("ANTHROPIC_API_KEY"),
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
             claude_haiku_model=os.getenv("CLAUDE_HAIKU_MODEL", "claude-haiku-4-5-20251001"),
             claude_sonnet_model=os.getenv("CLAUDE_SONNET_MODEL", "claude-sonnet-4-6"),
             claude_opus_model=os.getenv("CLAUDE_OPUS_MODEL", "claude-opus-4-8"),
