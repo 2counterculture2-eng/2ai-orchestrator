@@ -256,6 +256,24 @@ class LearningDB:
             row = c.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
 
+    # ---- Recent events (for admin dashboard) ----
+
+    def get_recent_events(self, limit: int = 20) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT event_type, payload, created_at FROM system_events ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_recent_tasks(self, limit: int = 10) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT task_id, task_type, channel, status, revenue_usd, error_msg, created_at FROM tasks ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     # ---- Summary for LINE reports ----
 
     def build_weekly_summary(self) -> dict:

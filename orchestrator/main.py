@@ -87,7 +87,7 @@ app = FastAPI(title="2AI Orchestrator", version="1.0.0", lifespan=lifespan)
 
 @app.get("/")
 async def health():
-    return {"status": "ok", "service": "2AI Orchestrator v1"}
+    return {"status": "ok", "service": "2AI Orchestrator v2"}
 
 
 @app.get("/status")
@@ -189,6 +189,17 @@ async def admin_dashboard():
         f"<tr><td>{ch}</td><td>${v:.2f}</td></tr>" for ch, v in monthly.items()
     ) or "<tr><td colspan='2'>収益なし</td></tr>"
 
+    recent_tasks = _db.get_recent_tasks(10)
+    status_colors = {"completed": "#4ade80", "failed": "#f87171", "pending": "#fbbf24"}
+    task_rows = "".join(
+        f"<tr><td style='font-size:11px;color:#64748b'>{t['task_id'][:8]}</td>"
+        f"<td>{t['task_type']}</td><td>{t['channel'] or '-'}</td>"
+        f"<td style='color:{status_colors.get(t[\"status\"],\"#e2e8f0\")}'>{t['status']}</td>"
+        f"<td>${t['revenue_usd']:.2f}</td>"
+        f"<td style='font-size:11px;color:#64748b'>{t['created_at'][:16]}</td></tr>"
+        for t in recent_tasks
+    ) or "<tr><td colspan='6'>タスクなし</td></tr>"
+
     cfg = _config
     api_status = {
         "Claude API": "✅" if cfg.anthropic_api_key else "❌",
@@ -253,6 +264,13 @@ async def admin_dashboard():
     <h2>クイックテスト</h2>
     <p style="font-size:13px; color:#94a3b8;">翻訳パイプラインのスモークテストを実行:</p>
     <a href="/test/translate" style="color:#38bdf8; font-size:14px;">→ /test/translate を実行</a>
+  </div>
+  <div class="card" style="grid-column: 1/-1;">
+    <h2>最近のタスク</h2>
+    <table>
+      <tr style="color:#64748b; font-size:12px;"><td>ID</td><td>タイプ</td><td>チャンネル</td><td>状態</td><td>収益</td><td>作成日時</td></tr>
+      {task_rows}
+    </table>
   </div>
 </div>
 <div class="footer">2AI Orchestrator v2 — Railway deployment</div>
