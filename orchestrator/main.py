@@ -23,6 +23,7 @@ from .config import Config
 from .learning import LearningDB
 from .line_bot import LineBot
 from .orchestrator_core import OrchestratorCore
+from .market_data import MarketDataClient
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -35,6 +36,7 @@ _config: Config = None
 _db: LearningDB = None
 _line: LineBot = None
 _orchestrator: OrchestratorCore = None
+_market: MarketDataClient = None
 
 
 RAILWAY_TOKEN = os.getenv("RAILWAY_TOKEN", "")
@@ -70,13 +72,14 @@ async def persist_line_user_id(user_id: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _config, _db, _line, _orchestrator
+    global _config, _db, _line, _orchestrator, _market
     _config = Config.from_env()
     _db = LearningDB(_config.db_path)
     _line = LineBot(_config)
     _orchestrator = OrchestratorCore(_config, _db, _line)
+    _market = MarketDataClient(_config.alpha_vantage_api_key)
     await _orchestrator.start()
-    logger.info("2AI Orchestrator v1 started")
+    logger.info("2AI Orchestrator v2 started")
     yield
     await _orchestrator.stop()
     logger.info("2AI Orchestrator v1 stopped")
@@ -207,6 +210,7 @@ async def admin_dashboard():
         "Claude API": "✅" if cfg.anthropic_api_key else "❌",
         "LINE Bot": "✅" if cfg.line_channel_access_token else "❌",
         "LINE User ID": "✅" if uid != "未設定" else "⚠️ 未取得",
+        "Alpha Vantage": "✅ QB7HJ9U0..." if cfg.alpha_vantage_api_key else "❌ 要登録",
         "Alpaca": "✅" if cfg.alpaca_api_key else "❌ 要登録",
         "OANDA": "✅" if cfg.oanda_api_key else "❌ 要登録",
         "Smartcat": "✅" if cfg.smartcat_api_key else "❌ 要登録",
@@ -333,6 +337,28 @@ async def test_translate():
     }
     task_id = await _orchestrator.enqueue_task(task)
     return {"queued": True, "task_id": task_id, "message": "翻訳タスクをキューに追加しました。/statusで結果を確認してください。"}
+
+
+@app.get("/market/quote/{symbol}")
+async def market_quote(symbol: str):
+    """Get live stock quote from Alpha Vantage."""
+    if not _market:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    quote = await _market.get_quote(symbol.upper())
+    if not quote:
+        raise HTTPException(status_code=404, detail=f"Quote not found for {symbol}")
+    return quote
+
+
+@app.get("/market/forex/{from_currency}/{to_currency}")
+async def market_forex(from_currency: str, to_currency: str):
+    """Get forex exchange rate from Alpha Vantage."""
+    if not _market:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    rate = await _market.get_forex_rate(from_currency.upper(), to_currency.upper())
+    if not rate:
+        raise HTTPException(status_code=404, detail="Forex rate not found")
+    return rate
 
 
 if __name__ == "__main__":

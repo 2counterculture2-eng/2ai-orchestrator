@@ -28,6 +28,9 @@ class Config:
     oanda_account_id: str = ""
     oanda_environment: str = "practice"  # practice -> live after verification
 
+    # Market data
+    alpha_vantage_api_key: str = ""
+
     # Freelance APIs
     smartcat_api_key: str = ""
     smartcat_account_id: str = ""
@@ -60,6 +63,7 @@ class Config:
             oanda_api_key=os.getenv("OANDA_API_KEY", ""),
             oanda_account_id=os.getenv("OANDA_ACCOUNT_ID", ""),
             oanda_environment=os.getenv("OANDA_ENVIRONMENT", "practice"),
+            alpha_vantage_api_key=os.getenv("ALPHA_VANTAGE_API_KEY", ""),
             smartcat_api_key=os.getenv("SMARTCAT_API_KEY", ""),
             smartcat_account_id=os.getenv("SMARTCAT_ACCOUNT_ID", ""),
             gigradar_api_key=os.getenv("GIGRADAR_API_KEY", ""),
