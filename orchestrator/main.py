@@ -191,14 +191,16 @@ async def admin_dashboard():
 
     recent_tasks = _db.get_recent_tasks(10)
     status_colors = {"completed": "#4ade80", "failed": "#f87171", "pending": "#fbbf24"}
-    task_rows = "".join(
-        f"<tr><td style='font-size:11px;color:#64748b'>{t['task_id'][:8]}</td>"
-        f"<td>{t['task_type']}</td><td>{t['channel'] or '-'}</td>"
-        f"<td style='color:{status_colors.get(t[\"status\"],\"#e2e8f0\")}'>{t['status']}</td>"
-        f"<td>${t['revenue_usd']:.2f}</td>"
-        f"<td style='font-size:11px;color:#64748b'>{t['created_at'][:16]}</td></tr>"
-        for t in recent_tasks
-    ) or "<tr><td colspan='6'>タスクなし</td></tr>"
+    def _task_row(t):
+        sc = status_colors.get(t["status"], "#e2e8f0")
+        return (
+            f"<tr><td style='font-size:11px;color:#64748b'>{t['task_id'][:8]}</td>"
+            f"<td>{t['task_type']}</td><td>{t['channel'] or '-'}</td>"
+            f"<td style='color:{sc}'>{t['status']}</td>"
+            f"<td>${t['revenue_usd']:.2f}</td>"
+            f"<td style='font-size:11px;color:#64748b'>{t['created_at'][:16]}</td></tr>"
+        )
+    task_rows = "".join(_task_row(t) for t in recent_tasks) or "<tr><td colspan='6'>タスクなし</td></tr>"
 
     cfg = _config
     api_status = {
