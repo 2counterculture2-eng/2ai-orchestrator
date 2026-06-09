@@ -83,7 +83,22 @@ async def line_webhook(
     events = payload.get("events", [])
 
     for event in events:
-        if event.get("type") == "message" and event["message"]["type"] == "text":
+        event_type = event.get("type")
+
+        if event_type == "follow":
+            user_id = event.get("source", {}).get("userId", "")
+            if user_id:
+                logger.info(f"New follower: {user_id}")
+                _db.set_config("line_user_id", user_id)
+                reply_token = event.get("replyToken", "")
+                background_tasks.add_task(
+                    _line.reply, reply_token,
+                    f"フォローありがとうございます！2AI Orchestratorです。\n"
+                    f"あなたのユーザーID: {user_id}\n"
+                    f"このアカウントで定期報告を受け取れます。"
+                )
+
+        elif event_type == "message" and event["message"]["type"] == "text":
             text = event["message"]["text"]
             reply_token = event.get("replyToken", "")
             command, args = _line.parse_command(text)

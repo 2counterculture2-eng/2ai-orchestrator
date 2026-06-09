@@ -87,6 +87,12 @@ class LearningDB:
                     created_at  TEXT NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS config (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
                 CREATE INDEX IF NOT EXISTS idx_tasks_channel ON tasks(channel);
                 CREATE INDEX IF NOT EXISTS idx_revenue_channel ON revenue_log(channel);
@@ -235,6 +241,20 @@ class LearningDB:
                 "INSERT INTO system_events (event_type, payload, created_at) VALUES (?,?,?)",
                 (event_type, json.dumps(payload or {}), self._now()),
             )
+
+    # ---- Config (runtime key-value store) ----
+
+    def set_config(self, key: str, value: str) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?,?,?)",
+                (key, value, self._now()),
+            )
+
+    def get_config(self, key: str, default: str = "") -> str:
+        with self._conn() as c:
+            row = c.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else default
 
     # ---- Summary for LINE reports ----
 
