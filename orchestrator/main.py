@@ -99,6 +99,10 @@ async def line_webhook(
                 )
 
         elif event_type == "message" and event["message"]["type"] == "text":
+            user_id = event.get("source", {}).get("userId", "")
+            if user_id and not _db.get_config("line_user_id"):
+                _db.set_config("line_user_id", user_id)
+                logger.info(f"Captured LINE user_id from message: {user_id}")
             text = event["message"]["text"]
             reply_token = event.get("replyToken", "")
             command, args = _line.parse_command(text)
@@ -117,6 +121,14 @@ async def submit_task(request: Request):
         raise HTTPException(status_code=400, detail="Empty task body")
     task_id = await _orchestrator.enqueue_task(task)
     return {"task_id": task_id, "status": "queued"}
+
+
+@app.get("/debug/line-user-id")
+async def debug_line_user_id():
+    if not _db:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    uid = _db.get_config("line_user_id")
+    return {"line_user_id": uid or None}
 
 
 @app.get("/revenue")
