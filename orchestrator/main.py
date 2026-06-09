@@ -9,6 +9,7 @@ Endpoints:
 """
 import logging
 import os
+import httpx
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Header, HTTPException, BackgroundTasks
@@ -30,6 +31,37 @@ _config: Config = None
 _db: LearningDB = None
 _line: LineBot = None
 _orchestrator: OrchestratorCore = None
+
+
+RAILWAY_TOKEN = os.getenv("RAILWAY_TOKEN", "")
+RAILWAY_SERVICE_ID = os.getenv("RAILWAY_SERVICE_ID", "155db9ac-abb9-408b-8bea-00b51b8a02c7")
+RAILWAY_ENV_ID = os.getenv("RAILWAY_ENV_ID", "f23ef4f6-5a1f-46b3-98f9-8f5eacf2f45c")
+RAILWAY_PROJECT_ID = os.getenv("RAILWAY_PROJECT_ID", "a9375e6d-1f7d-47aa-94f3-dd70f2e0b50e")
+
+
+async def persist_line_user_id(user_id: str) -> None:
+    """Save LINE user ID to both DB and Railway env var for persistence across redeploys."""
+    _db.set_config("line_user_id", user_id)
+    if RAILWAY_TOKEN:
+        query = """mutation variableUpsert($input: VariableUpsertInput!) { variableUpsert(input: $input) }"""
+        variables = {"input": {
+            "projectId": RAILWAY_PROJECT_ID,
+            "serviceId": RAILWAY_SERVICE_ID,
+            "environmentId": RAILWAY_ENV_ID,
+            "name": "LINE_USER_ID",
+            "value": user_id,
+        }}
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://backboard.railway.app/graphql/v2",
+                    headers={"Authorization": f"Bearer {RAILWAY_TOKEN}", "Content-Type": "application/json"},
+                    json={"query": query, "variables": variables},
+                    timeout=10,
+                )
+            logger.info(f"Railway LINE_USER_ID updated: {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"Failed to persist user_id to Railway: {e}")
 
 
 @asynccontextmanager
@@ -89,20 +121,19 @@ async def line_webhook(
             user_id = event.get("source", {}).get("userId", "")
             if user_id:
                 logger.info(f"New follower: {user_id}")
-                _db.set_config("line_user_id", user_id)
+                background_tasks.add_task(persist_line_user_id, user_id)
                 reply_token = event.get("replyToken", "")
                 background_tasks.add_task(
                     _line.reply, reply_token,
                     f"フォローありがとうございます！2AI Orchestratorです。\n"
-                    f"あなたのユーザーID: {user_id}\n"
-                    f"このアカウントで定期報告を受け取れます。"
+                    f"ユーザーID取得完了。定期報告を開始します。"
                 )
 
         elif event_type == "message" and event["message"]["type"] == "text":
             user_id = event.get("source", {}).get("userId", "")
             if user_id and not _db.get_config("line_user_id"):
-                _db.set_config("line_user_id", user_id)
                 logger.info(f"Captured LINE user_id from message: {user_id}")
+                background_tasks.add_task(persist_line_user_id, user_id)
             text = event["message"]["text"]
             reply_token = event.get("replyToken", "")
             command, args = _line.parse_command(text)
