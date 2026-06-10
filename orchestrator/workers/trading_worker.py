@@ -14,6 +14,7 @@ from typing import Optional
 from .base_worker import BaseWorker, TaskResult
 from ..config import Config
 from ..learning import LearningDB
+from ..alpaca_client import AlpacaInternalClient
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,16 @@ class TradingWorker(BaseWorker):
     def __init__(self, config: Config, db: LearningDB):
         super().__init__(config, db)
         self._http = httpx.AsyncClient(timeout=30)
+        # Use internal Cognito-based client if credentials are provided
+        self._alpaca: Optional[AlpacaInternalClient] = None
+        if config.alpaca_email and config.alpaca_password and config.alpaca_mfa_secret:
+            self._alpaca = AlpacaInternalClient(
+                email=config.alpaca_email,
+                password=config.alpaca_password,
+                mfa_secret=config.alpaca_mfa_secret,
+                paper_account_id=config.alpaca_paper_account_id,
+            )
+        # Legacy API key headers (fallback if internal client not available)
         self._alpaca_headers = {
             "APCA-API-KEY-ID": config.alpaca_api_key,
             "APCA-API-SECRET-KEY": config.alpaca_secret_key,
@@ -43,6 +54,8 @@ class TradingWorker(BaseWorker):
 
     async def close(self):
         await self._http.aclose()
+        if self._alpaca:
+            await self._alpaca.close()
 
     async def execute(self, task: dict) -> TaskResult:
         task_id = self.new_task_id()
@@ -79,8 +92,9 @@ class TradingWorker(BaseWorker):
     # ---- Alpaca ----
 
     async def _handle_alpaca(self, task_id: str, task: dict) -> TaskResult:
-        if not self.config.alpaca_api_key:
-            return TaskResult(success=False, task_id=task_id, error="Alpaca API key not configured")
+        # Prefer internal Cognito-based client; fall back to legacy API key check
+        if not self._alpaca and not self.config.alpaca_api_key:
+            return TaskResult(success=False, task_id=task_id, error="Alpaca not configured (set ALPACA_EMAIL+ALPACA_PASSWORD+ALPACA_MFA_SECRET)")
 
         action = task.get("action", "analyze")
         if action == "analyze":
@@ -92,18 +106,21 @@ class TradingWorker(BaseWorker):
         return TaskResult(success=False, task_id=task_id, error=f"Unknown Alpaca action: {action}")
 
     async def _alpaca_account_status(self, task_id: str) -> TaskResult:
-        base = self.config.alpaca_base_url
         try:
-            resp = await self._http.get(f"{base}/v2/account", headers=self._alpaca_headers)
-            resp.raise_for_status()
-            account = resp.json()
+            if self._alpaca:
+                account = await self._alpaca.get_account()
+            else:
+                base = self.config.alpaca_base_url
+                resp = await self._http.get(f"{base}/v2/account", headers=self._alpaca_headers)
+                resp.raise_for_status()
+                account = resp.json()
             return TaskResult(
                 success=True,
                 task_id=task_id,
                 data={
                     "portfolio_value": float(account.get("portfolio_value", 0)),
                     "cash": float(account.get("cash", 0)),
-                    "equity": float(account.get("equity", 0)),
+                    "equity": float(account.get("equity", account.get("portfolio_value", 0))),
                     "buying_power": float(account.get("buying_power", 0)),
                     "status": account.get("status"),
                 },
@@ -113,46 +130,52 @@ class TradingWorker(BaseWorker):
 
     async def _alpaca_analyze_and_trade(self, task_id: str, task: dict) -> TaskResult:
         symbols = task.get("symbols", ["AAPL", "MSFT", "NVDA", "SPY", "QQQ"])
-        base = self.config.alpaca_base_url
 
-        # Get account info first
+        # Get account info
         try:
-            acct_resp = await self._http.get(f"{base}/v2/account", headers=self._alpaca_headers)
-            acct_resp.raise_for_status()
-            account = acct_resp.json()
+            if self._alpaca:
+                account = await self._alpaca.get_account()
+            else:
+                base = self.config.alpaca_base_url
+                acct_resp = await self._http.get(f"{base}/v2/account", headers=self._alpaca_headers)
+                acct_resp.raise_for_status()
+                account = acct_resp.json()
             portfolio_value = float(account.get("portfolio_value", 10000))
         except Exception as e:
             return TaskResult(success=False, task_id=task_id, error=f"Cannot get account: {e}")
 
-        # Get recent bars for each symbol
+        # Get market data via Alpha Vantage (available without Alpaca API keys)
         market_data = {}
-        for symbol in symbols:
+        for symbol in symbols[:3]:  # limit to 3 symbols to keep API calls low
             try:
-                bars_resp = await self._http.get(
-                    "https://data.alpaca.markets/v2/stocks/bars",
-                    headers=self._alpaca_headers,
-                    params={
-                        "symbols": symbol,
-                        "timeframe": "1Day",
-                        "limit": 10,
-                        "adjustment": "raw",
-                    },
-                )
-                if bars_resp.status_code == 200:
-                    bars = bars_resp.json().get("bars", {}).get(symbol, [])
-                    if bars:
-                        latest = bars[-1]
-                        prev = bars[-2] if len(bars) > 1 else bars[-1]
-                        market_data[symbol] = {
-                            "close": latest.get("c"),
-                            "open": latest.get("o"),
-                            "high": latest.get("h"),
-                            "low": latest.get("l"),
-                            "volume": latest.get("v"),
-                            "change_pct": round(
-                                (latest["c"] - prev["c"]) / prev["c"] * 100, 2
-                            ) if prev else 0,
-                        }
+                av_key = self.config.alpha_vantage_api_key
+                if av_key:
+                    bars_resp = await self._http.get(
+                        "https://www.alphavantage.co/query",
+                        params={
+                            "function": "TIME_SERIES_DAILY",
+                            "symbol": symbol,
+                            "outputsize": "compact",
+                            "apikey": av_key,
+                        },
+                    )
+                    if bars_resp.status_code == 200:
+                        ts = bars_resp.json().get("Time Series (Daily)", {})
+                        dates = sorted(ts.keys(), reverse=True)[:2]
+                        if len(dates) >= 2:
+                            today = ts[dates[0]]
+                            prev = ts[dates[1]]
+                            market_data[symbol] = {
+                                "close": float(today["4. close"]),
+                                "open": float(today["1. open"]),
+                                "high": float(today["2. high"]),
+                                "low": float(today["3. low"]),
+                                "volume": int(today["5. volume"]),
+                                "change_pct": round(
+                                    (float(today["4. close"]) - float(prev["4. close"]))
+                                    / float(prev["4. close"]) * 100, 2
+                                ),
+                            }
             except Exception:
                 pass
 
@@ -191,19 +214,18 @@ class TradingWorker(BaseWorker):
         side = signal["action"]
 
         try:
-            order_resp = await self._http.post(
-                f"{base}/v2/orders",
-                headers=self._alpaca_headers,
-                json={
-                    "symbol": symbol,
-                    "notional": round(notional, 2),
-                    "side": side,
-                    "type": "market",
-                    "time_in_force": "day",
-                },
-            )
-            order_resp.raise_for_status()
-            order = order_resp.json()
+            if self._alpaca:
+                order = await self._alpaca.place_order(symbol, side, notional=notional)
+            else:
+                base = self.config.alpaca_base_url
+                order_resp = await self._http.post(
+                    f"{base}/v2/orders",
+                    headers=self._alpaca_headers,
+                    json={"symbol": symbol, "notional": round(notional, 2), "side": side,
+                          "type": "market", "time_in_force": "day"},
+                )
+                order_resp.raise_for_status()
+                order = order_resp.json()
             logger.info(f"Alpaca order placed: {side} {symbol} ${notional:.2f}")
             return TaskResult(
                 success=True,
@@ -219,8 +241,11 @@ class TradingWorker(BaseWorker):
             )
 
     async def _alpaca_close_all(self, task_id: str) -> TaskResult:
-        base = self.config.alpaca_base_url
         try:
+            if self._alpaca:
+                results = await self._alpaca.close_all_positions()
+                return TaskResult(success=True, task_id=task_id, data={"closed": results})
+            base = self.config.alpaca_base_url
             resp = await self._http.delete(
                 f"{base}/v2/positions",
                 headers=self._alpaca_headers,

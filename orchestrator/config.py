@@ -20,10 +20,15 @@ class Config:
     line_channel_secret: str = ""
     line_user_id: str = ""  # Takuma-san's LINE user ID for push messages
 
-    # Trading APIs
+    # Trading APIs — Alpaca (internal auth flow; no traditional API keys needed)
+    alpaca_email: str = ""
+    alpaca_password: str = ""
+    alpaca_mfa_secret: str = ""
+    alpaca_paper_account_id: str = ""
+    # Legacy API key fields (kept for compatibility; unused when internal auth is active)
     alpaca_api_key: str = ""
     alpaca_secret_key: str = ""
-    alpaca_base_url: str = "https://paper-api.alpaca.markets"  # paper trading by default
+    alpaca_base_url: str = "https://paper-api.alpaca.markets"
     oanda_api_key: str = ""
     oanda_account_id: str = ""
     oanda_environment: str = "practice"  # practice -> live after verification
@@ -57,6 +62,10 @@ class Config:
             line_channel_access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN", ""),
             line_channel_secret=os.getenv("LINE_CHANNEL_SECRET", ""),
             line_user_id=os.getenv("LINE_USER_ID", ""),
+            alpaca_email=os.getenv("ALPACA_EMAIL", ""),
+            alpaca_password=os.getenv("ALPACA_PASSWORD", ""),
+            alpaca_mfa_secret=os.getenv("ALPACA_MFA_SECRET", ""),
+            alpaca_paper_account_id=os.getenv("ALPACA_PAPER_ACCOUNT_ID", ""),
             alpaca_api_key=os.getenv("ALPACA_API_KEY", ""),
             alpaca_secret_key=os.getenv("ALPACA_SECRET_KEY", ""),
             alpaca_base_url=os.getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),

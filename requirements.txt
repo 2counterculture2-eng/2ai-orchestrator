@@ -20,6 +20,10 @@ oandapyV20==0.7.2
 # Scheduling
 apscheduler==3.10.4
 
+# AWS / Cognito auth (for Alpaca internal auth flow)
+boto3==1.35.0
+botocore==1.35.0
+
 # Data / utilities
 python-dotenv==1.0.1
 pydantic==2.10.3
