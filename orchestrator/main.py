@@ -211,7 +211,7 @@ async def admin_dashboard():
         "LINE Bot": "✅" if cfg.line_channel_access_token else "❌",
         "LINE User ID": "✅" if uid != "未設定" else "⚠️ 未取得",
         "Alpha Vantage": "✅ QB7HJ9U0..." if cfg.alpha_vantage_api_key else "❌ 要登録",
-        "Alpaca": "✅" if cfg.alpaca_api_key else "❌ 要登録",
+        "Alpaca": "✅ Cognito" if cfg.alpaca_email else ("✅" if cfg.alpaca_api_key else "❌ 要登録"),
         "OANDA": "✅" if cfg.oanda_api_key else "❌ 要登録",
         "Smartcat": "✅" if cfg.smartcat_api_key else "❌ 要登録",
         "GigRadar(Upwork)": "✅" if cfg.gigradar_api_key else "❌ 要登録",
@@ -270,6 +270,8 @@ async def admin_dashboard():
     <h2>クイックテスト</h2>
     <p style="font-size:13px; color:#94a3b8;">翻訳パイプラインのスモークテストを実行:</p>
     <a href="/test/translate" style="color:#38bdf8; font-size:14px;">→ /test/translate を実行</a>
+    <br><a href="/test/alpaca" style="color:#38bdf8; font-size:14px; margin-top:8px; display:block;">→ /test/alpaca (Alpacaアカウント確認)</a>
+    <br><a href="/test/alpaca/trade" style="color:#38bdf8; font-size:14px; margin-top:4px; display:block;">→ /test/alpaca/trade (トレード分析実行)</a>
   </div>
   <div class="card" style="grid-column: 1/-1;">
     <h2>最近のタスク</h2>
@@ -348,6 +350,26 @@ async def market_quote(symbol: str):
     if not quote:
         raise HTTPException(status_code=404, detail=f"Quote not found for {symbol}")
     return quote
+
+
+@app.get("/test/alpaca")
+async def test_alpaca():
+    """Smoke test: check Alpaca account status via Cognito auth."""
+    if not _orchestrator:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    task = {"type": "trading", "channel": "alpaca", "action": "status"}
+    task_id = await _orchestrator.enqueue_task(task)
+    return {"queued": True, "task_id": task_id, "message": "Alpacaアカウント確認タスクをキューに追加。/statusで結果を確認。"}
+
+
+@app.get("/test/alpaca/trade")
+async def test_alpaca_trade():
+    """Smoke test: run one trading analysis cycle."""
+    if not _orchestrator:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    task = {"type": "trading", "channel": "alpaca", "action": "analyze", "symbols": ["AAPL", "MSFT", "NVDA"]}
+    task_id = await _orchestrator.enqueue_task(task)
+    return {"queued": True, "task_id": task_id, "message": "トレード分析タスクをキューに追加。/statusで結果を確認。"}
 
 
 @app.get("/market/forex/{from_currency}/{to_currency}")
