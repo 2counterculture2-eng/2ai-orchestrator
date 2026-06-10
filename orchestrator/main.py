@@ -372,6 +372,22 @@ async def test_alpaca_trade():
     return {"queued": True, "task_id": task_id, "message": "トレード分析タスクをキューに追加。/statusで結果を確認。"}
 
 
+@app.get("/debug/tasks")
+async def debug_tasks():
+    """Return recent tasks with full error messages for debugging."""
+    if not _orchestrator:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    db = _orchestrator.db
+    rows = db.conn.execute(
+        "SELECT id, task_type, channel, status, result_data, error_msg, created_at FROM tasks ORDER BY created_at DESC LIMIT 10"
+    ).fetchall()
+    return [
+        {"id": r[0], "type": r[1], "channel": r[2], "status": r[3],
+         "result": r[4], "error": r[5], "created_at": r[6]}
+        for r in rows
+    ]
+
+
 @app.get("/market/forex/{from_currency}/{to_currency}")
 async def market_forex(from_currency: str, to_currency: str):
     """Get forex exchange rate from Alpha Vantage."""

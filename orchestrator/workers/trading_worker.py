@@ -195,8 +195,13 @@ class TradingWorker(BaseWorker):
                 model=self.config.claude_haiku_model,
                 max_tokens=200,
             )
-            signal = json.loads(signal_text.strip())
+            logger.info(f"Claude signal raw: {signal_text[:200]}")
+            # Extract JSON even if Claude wraps it in text
+            import re as _re
+            m = _re.search(r'\{.*\}', signal_text, _re.DOTALL)
+            signal = json.loads(m.group(0) if m else signal_text.strip())
         except Exception as e:
+            logger.error(f"Claude analysis failed: {e} | raw: {locals().get('signal_text','')[:200]}")
             return TaskResult(success=False, task_id=task_id, error=f"Claude analysis failed: {e}")
 
         if signal.get("action") == "hold" or signal.get("confidence", 0) < 0.65:
