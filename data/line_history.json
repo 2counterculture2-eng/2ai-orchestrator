@@ -30,5 +30,13 @@
   {
     "role": "assistant",
     "content": "✅ **shared_context.md 読み取りOK！**\n\nただし、**「Last LINE Session Summary」がまだ空のまま**です。\n\n今回のLINE会話（テスト確認・引き継ぎ確認など）を反映して更新しましょうか？ 🔧"
+  },
+  {
+    "role": "user",
+    "content": "v3 test: can you see shared_context.md?"
+  },
+  {
+    "role": "assistant",
+    "content": "✅ **読み取り確認！**\n\nただし「Last LINE Session Summary」が**まだ空のまま**です。\n\n今回のLINEセッション内容でshared_context.mdを更新しますか？\n\n内容例：\n- LINEからの会話引き継ぎ確認 ✅\n- テストメッセージ送受信確認 ✅\n- LINE→PC反映の仕組みが未完と確認\n\n更新しましょうか？ 🔧"
   }
 ]
