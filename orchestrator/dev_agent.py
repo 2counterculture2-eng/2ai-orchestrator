@@ -84,7 +84,7 @@ class DevAgent:
             ]
             await self._save_history(new_history)
             total = len(new_history)
-            if total <= 2 or total % 10 == 0:
+            if True:  # update shared_context on every exchange
                 await self._update_shared_context(user_message, response, total)
             return response
         except Exception as e:
