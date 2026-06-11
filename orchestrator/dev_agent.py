@@ -209,7 +209,7 @@ class DevAgent:
 
     async def _deploy(self, reason: str) -> str:
         svc,repo = RAILWAY_SERVICE_ID,RAILWAY_REPO
-        query = "mutation { serviceConnect(id: \\"" + svc + "\\", input: { branch: \\"master\\", repo: \\"" + repo + "\\" }) { id } }"
+        query = 'mutation { serviceConnect(id: "' + svc + '", input: { branch: "master", repo: "' + repo + '" }) { id } }'
         r = await self._http.post("https://backboard.railway.app/graphql/v2",
             headers={"Authorization":"Bearer " + RAILWAY_TOKEN,"Content-Type":"application/json"},
             json={"query":query})
