@@ -132,36 +132,16 @@ class OrchestratorCore:
             await self.line.reply(reply_token, help_text)
 
         else:
-            # Route to DevAgent (Claude Opus with tools)
-            await self.line.reply(reply_token, "Processing... (Claude Code agent)")
-            history = self._load_history()
-            response = await self.dev_agent.run(full_text, history)
-            self._save_history(full_text, response)
-            # Send response (split if too long)
+            # Route to DevAgent v2 (history managed internally via GitHub)
+            await self.line.reply(reply_token, "Processing...")
+            response = await self.dev_agent.run(full_text)
+            uid = self.db.get_config("line_user_id") or self.config.line_user_id
             if len(response) <= 2000:
-                uid = self.db.get_config("line_user_id") or self.config.line_user_id
                 await self.line.send_text(response, user_id=uid)
             else:
-                # Send in chunks
-                uid = self.db.get_config("line_user_id") or self.config.line_user_id
                 for i in range(0, len(response), 2000):
                     await self.line.send_text(response[i:i+2000], user_id=uid)
                     await asyncio.sleep(0.5)
-
-    def _load_history(self) -> list:
-        raw = self.db.get_config("dev_agent_history") or "[]"
-        try:
-            import json
-            return json.loads(raw)[-MAX_HISTORY:]
-        except Exception:
-            return []
-
-    def _save_history(self, user_msg: str, assistant_msg: str):
-        import json
-        history = self._load_history()
-        history.append({"role": "user", "content": user_msg})
-        history.append({"role": "assistant", "content": assistant_msg})
-        self.db.set_config("dev_agent_history", json.dumps(history[-MAX_HISTORY:]))
 
     async def enqueue_task(self, task):
         task_id = str(uuid.uuid4())
