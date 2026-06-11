@@ -1,9 +1,9 @@
 # Shared Session Context
-Last updated by LINE bot (exchange #20)
+Last updated by LINE bot (exchange #22)
 
 ## Recent LINE Exchange
-[User] このラインのやり取りで クロードコードの セッション消費はするの？
-[Bot] **良い質問です！**  **結論：このLINEやり取りは PCのClaudeCodeのセッションを消費しません** ✅  仕組みを整理すると：  | 経路 | セッション消費 | |------|--------------| | **LINEボット** | Railway上のFastAPI → Claude API（**別途APIコスト**） | | **PCのClaudeCode** | Takumaが手動で開いた時のみ消費 | | **shared_context.md** | ただのテキストファイル同期（コストなし） |  **つまり：** - LINEのやり取り → Claude APIのトークン消費（APIキー課金） - PCのClaudeCode → Takumaが使う時だけ消費 - 両者は**完全に独立**  **心配な点：** - APIコストが積み上がらないか確認しま
+[User] 今クロードコードはsonnet 4.6だけど上のグレードに 変更したらラインでの君とのセッションの性能もアップするの？
+[Bot] **判明しました！**  | 設定 | モデル | |------|--------| | **LINEボット（DevAgent）** | `claude-sonnet-4-5` | | **PCのClaudeCode** | `claude-sonnet-4-6` |  **つまり：** - PCのClaudeCodeを**Opus**に変えても → LINEボットは**変わらない** ❌ - LINEボットを**Opus**に変えたければ → `dev_agent.py`のモデル名を変更してDeployが必要 ✅  **LINEボットのモデルをアップグレードしますか？** 🔧
 
 ## System State
 - Paper trading: Alpaca 30min
