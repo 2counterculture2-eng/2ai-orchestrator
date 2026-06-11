@@ -1,15 +1,15 @@
-﻿"""
+"""
 main.py v2
 FastAPI application entry point.
 Endpoints:
-  GET  /              窶・health check
-  GET  /status        窶・system status JSON
-  GET  /admin         窶・HTML admin dashboard
-  GET  /setup         窶・LINE bot onboarding page
-  GET  /revenue       窶・revenue summary
-  GET  /test/translate 窶・translation smoke test
-  POST /webhook/line  窶・LINE Messaging API webhook
-  POST /task          窶・internal task submission
+  GET  /              — health check
+  GET  /status        — system status JSON
+  GET  /admin         — HTML admin dashboard
+  GET  /setup         — LINE bot onboarding page
+  GET  /revenue       — revenue summary
+  GET  /test/translate — translation smoke test
+  POST /webhook/line  — LINE Messaging API webhook
+  POST /task          — internal task submission
 """
 import logging
 import os
@@ -27,7 +27,7 @@ from .market_data import MarketDataClient
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
-    format="%(asctime)s %(levelname)s %(name)s 窶・%(message)s",
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
 )
 logger = logging.getLogger(__name__)
 
@@ -132,8 +132,8 @@ async def line_webhook(
                 reply_token = event.get("replyToken", "")
                 background_tasks.add_task(
                     _line.reply, reply_token,
-                    f"繝輔か繝ｭ繝ｼ縺ゅｊ縺後→縺・＃縺悶＞縺ｾ縺呻ｼ・AI Orchestrator縺ｧ縺吶・n"
-                    f"繝ｦ繝ｼ繧ｶ繝ｼID蜿門ｾ怜ｮ御ｺ・ょｮ壽悄蝣ｱ蜻翫ｒ髢句ｧ九＠縺ｾ縺吶・
+                    f"フォローありがとうございます！2AI Orchestratorです。\n"
+                    f"ユーザーID取得完了。定期報告を開始します。"
                 )
 
         elif event_type == "message" and event["message"]["type"] == "text":
@@ -169,17 +169,15 @@ async def debug_line_user_id():
     return {"line_user_id": uid or None}
 
 
-
-
 @app.get("/debug/send-test")
 async def debug_send_test():
-    if not _line or not _config:
+    if not _line or not _config or not _orchestrator:
         raise HTTPException(status_code=503, detail="Not initialized")
     uid = (_db.get_config("line_user_id") if _db else None) or (_config.line_user_id if _config else None)
     if not uid:
         return {"success": False, "error": "LINE_USER_ID not configured"}
     status_text = await _orchestrator._system_status()
-    ok = await _line.send_text(f"[テスト通知]\n{status_text}", user_id=uid)
+    ok = await _line.send_text(f"[Test notification]\n{status_text}", user_id=uid)
     return {"success": ok, "user_id_prefix": uid[:10] + "..."}
 
 @app.get("/revenue")
@@ -197,13 +195,13 @@ async def admin_dashboard():
     if not _db:
         return HTMLResponse("<h1>Initializing...</h1>", status_code=503)
 
-    uid = _db.get_config("line_user_id") or "譛ｪ險ｭ螳・
+    uid = _db.get_config("line_user_id") or "未設定"
     pending = len(_db.get_pending_tasks())
     monthly = _db.get_monthly_revenue()
     total = _db.get_total_revenue()
     monthly_rows = "".join(
         f"<tr><td>{ch}</td><td>${v:.2f}</td></tr>" for ch, v in monthly.items()
-    ) or "<tr><td colspan='2'>蜿守寢縺ｪ縺・/td></tr>"
+    ) or "<tr><td colspan='2'>収益なし</td></tr>"
 
     recent_tasks = _db.get_recent_tasks(10)
     status_colors = {"completed": "#4ade80", "failed": "#f87171", "pending": "#fbbf24"}
@@ -216,18 +214,18 @@ async def admin_dashboard():
             f"<td>${t['revenue_usd']:.2f}</td>"
             f"<td style='font-size:11px;color:#64748b'>{t['created_at'][:16]}</td></tr>"
         )
-    task_rows = "".join(_task_row(t) for t in recent_tasks) or "<tr><td colspan='6'>繧ｿ繧ｹ繧ｯ縺ｪ縺・/td></tr>"
+    task_rows = "".join(_task_row(t) for t in recent_tasks) or "<tr><td colspan='6'>タスクなし</td></tr>"
 
     cfg = _config
     api_status = {
-        "Claude API": "笨・ if cfg.anthropic_api_key else "笶・,
-        "LINE Bot": "笨・ if cfg.line_channel_access_token else "笶・,
-        "LINE User ID": "笨・ if uid != "譛ｪ險ｭ螳・ else "笞・・譛ｪ蜿門ｾ・,
-        "Alpha Vantage": "笨・QB7HJ9U0..." if cfg.alpha_vantage_api_key else "笶・隕∫匳骭ｲ",
-        "Alpaca": "笨・Cognito" if cfg.alpaca_email else ("笨・ if cfg.alpaca_api_key else "笶・隕∫匳骭ｲ"),
-        "OANDA": "笨・ if cfg.oanda_api_key else "笶・隕∫匳骭ｲ",
-        "Smartcat": "笨・ if cfg.smartcat_api_key else "笶・隕∫匳骭ｲ",
-        "GigRadar(Upwork)": "笨・ if cfg.gigradar_api_key else "笶・隕∫匳骭ｲ",
+        "Claude API": "✅" if cfg.anthropic_api_key else "❌",
+        "LINE Bot": "✅" if cfg.line_channel_access_token else "❌",
+        "LINE User ID": "✅" if uid != "未設定" else "⚠️ 未取得",
+        "Alpha Vantage": "✅ QB7HJ9U0..." if cfg.alpha_vantage_api_key else "❌ 要登録",
+        "Alpaca": "✅ Cognito" if cfg.alpaca_email else ("✅" if cfg.alpaca_api_key else "❌ 要登録"),
+        "OANDA": "✅" if cfg.oanda_api_key else "❌ 要登録",
+        "Smartcat": "✅" if cfg.smartcat_api_key else "❌ 要登録",
+        "GigRadar(Upwork)": "✅" if cfg.gigradar_api_key else "❌ 要登録",
     }
     api_rows = "".join(
         f"<tr><td>{k}</td><td>{v}</td></tr>" for k, v in api_status.items()
@@ -256,45 +254,45 @@ async def admin_dashboard():
 </head>
 <body>
 <h1>2AI Orchestrator</h1>
-<div class="subtitle">閾ｪ蠕帰I蜿守寢繧ｷ繧ｹ繝・Β 窶・繝繝・す繝･繝懊・繝・/div>
+<div class="subtitle">自律AI収益システム — ダッシュボード</div>
 <div class="grid">
   <div class="card">
-    <h2>邏ｯ險亥庶逶・/h2>
+    <h2>累計収益</h2>
     <div class="stat">${total:.2f}</div>
   </div>
   <div class="card">
-    <h2>蠕・ｩ溘ち繧ｹ繧ｯ</h2>
+    <h2>待機タスク</h2>
     <div class="stat">{pending}</div>
   </div>
   <div class="card">
     <h2>LINE User ID</h2>
     <div style="font-size:14px; word-break:break-all; margin-top:8px;">{uid}</div>
-    <div style="margin-top:8px;"><a href="/setup" style="color:#38bdf8;">竊・LINE Bot 繧ｻ繝・ヨ繧｢繝・・</a></div>
+    <div style="margin-top:8px;"><a href="/setup" style="color:#38bdf8;">→ LINE Bot セットアップ</a></div>
   </div>
   <div class="card">
-    <h2>莉頑怦縺ｮ蜿守寢繝√Ε繝ｳ繝阪Ν蛻･</h2>
+    <h2>今月の収益チャンネル別</h2>
     <table>{monthly_rows}</table>
   </div>
   <div class="card">
-    <h2>API 謗･邯夂憾諷・/h2>
+    <h2>API 接続状態</h2>
     <table>{api_rows}</table>
   </div>
   <div class="card">
-    <h2>繧ｯ繧､繝・け繝・せ繝・/h2>
-    <p style="font-size:13px; color:#94a3b8;">鄙ｻ險ｳ繝代う繝励Λ繧､繝ｳ縺ｮ繧ｹ繝｢繝ｼ繧ｯ繝・せ繝医ｒ螳溯｡・</p>
-    <a href="/test/translate" style="color:#38bdf8; font-size:14px;">竊・/test/translate 繧貞ｮ溯｡・/a>
-    <br><a href="/test/alpaca" style="color:#38bdf8; font-size:14px; margin-top:8px; display:block;">竊・/test/alpaca (Alpaca繧｢繧ｫ繧ｦ繝ｳ繝育｢ｺ隱・</a>
-    <br><a href="/test/alpaca/trade" style="color:#38bdf8; font-size:14px; margin-top:4px; display:block;">竊・/test/alpaca/trade (繝医Ξ繝ｼ繝牙・譫仙ｮ溯｡・</a>
+    <h2>クイックテスト</h2>
+    <p style="font-size:13px; color:#94a3b8;">翻訳パイプラインのスモークテストを実行:</p>
+    <a href="/test/translate" style="color:#38bdf8; font-size:14px;">→ /test/translate を実行</a>
+    <br><a href="/test/alpaca" style="color:#38bdf8; font-size:14px; margin-top:8px; display:block;">→ /test/alpaca (Alpacaアカウント確認)</a>
+    <br><a href="/test/alpaca/trade" style="color:#38bdf8; font-size:14px; margin-top:4px; display:block;">→ /test/alpaca/trade (トレード分析実行)</a>
   </div>
   <div class="card" style="grid-column: 1/-1;">
-    <h2>譛霑代・繧ｿ繧ｹ繧ｯ</h2>
+    <h2>最近のタスク</h2>
     <table>
-      <tr style="color:#64748b; font-size:12px;"><td>ID</td><td>繧ｿ繧､繝・/td><td>繝√Ε繝ｳ繝阪Ν</td><td>迥ｶ諷・/td><td>蜿守寢</td><td>菴懈・譌･譎・/td></tr>
+      <tr style="color:#64748b; font-size:12px;"><td>ID</td><td>タイプ</td><td>チャンネル</td><td>状態</td><td>収益</td><td>作成日時</td></tr>
       {task_rows}
     </table>
   </div>
 </div>
-<div class="footer">2AI Orchestrator v2 窶・Railway deployment</div>
+<div class="footer">2AI Orchestrator v2 — Railway deployment</div>
 </body>
 </html>"""
     return HTMLResponse(html)
@@ -306,7 +304,7 @@ async def setup_page():
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<title>2AI 窶・LINE Bot 繧ｻ繝・ヨ繧｢繝・・</title>
+<title>2AI — LINE Bot セットアップ</title>
 <style>
   body { font-family: -apple-system, sans-serif; background: #0f172a; color: #e2e8f0;
          display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
@@ -322,14 +320,14 @@ async def setup_page():
 </head>
 <body>
 <div class="box">
-  <h1>LINE Bot 繧ｻ繝・ヨ繧｢繝・・</h1>
-  <p>2AI Orchestrator繧偵ヵ繧ｩ繝ｭ繝ｼ縺吶ｋ縺ｨ<br>蜿守寢繝ｬ繝昴・繝医′螻翫″縺ｾ縺・/p>
+  <h1>LINE Bot セットアップ</h1>
+  <p>2AI Orchestratorをフォローすると<br>収益レポートが届きます</p>
   <div class="id">@317fpwfv</div>
-  <div class="step"><span>Step 1</span> LINE繧｢繝励Μ繧帝幕縺・/div>
-  <div class="step"><span>Step 2</span> 蜿九□縺｡霑ｽ蜉 竊・ID讀懃ｴ｢</div>
-  <div class="step"><span>Step 3</span> <strong>@317fpwfv</strong> 繧呈､懃ｴ｢縺励※繝輔か繝ｭ繝ｼ</div>
-  <div class="step"><span>Step 4</span> 繝輔か繝ｭ繝ｼ蠕後∬・蜍慕噪縺ｫUser ID縺悟叙蠕励＆繧後∪縺・/div>
-  <p style="margin-top:20px; font-size:12px;">繝輔か繝ｭ繝ｼ螳御ｺ・ｾ後↓ <a href="/debug/line-user-id" style="color:#38bdf8;">/debug/line-user-id</a> 縺ｧ遒ｺ隱阪〒縺阪∪縺・/p>
+  <div class="step"><span>Step 1</span> LINEアプリを開く</div>
+  <div class="step"><span>Step 2</span> 友だち追加 → ID検索</div>
+  <div class="step"><span>Step 3</span> <strong>@317fpwfv</strong> を検索してフォロー</div>
+  <div class="step"><span>Step 4</span> フォロー後、自動的にUser IDが取得されます</div>
+  <p style="margin-top:20px; font-size:12px;">フォロー完了後に <a href="/debug/line-user-id" style="color:#38bdf8;">/debug/line-user-id</a> で確認できます</p>
 </div>
 </body>
 </html>"""
@@ -351,7 +349,7 @@ async def test_translate():
         "domain": "general",
     }
     task_id = await _orchestrator.enqueue_task(task)
-    return {"queued": True, "task_id": task_id, "message": "鄙ｻ險ｳ繧ｿ繧ｹ繧ｯ繧偵く繝･繝ｼ縺ｫ霑ｽ蜉縺励∪縺励◆縲・status縺ｧ邨先棡繧堤｢ｺ隱阪＠縺ｦ縺上□縺輔＞縲・}
+    return {"queued": True, "task_id": task_id, "message": "翻訳タスクをキューに追加しました。/statusで結果を確認してください。"}
 
 
 @app.get("/market/quote/{symbol}")
@@ -372,7 +370,7 @@ async def test_alpaca():
         raise HTTPException(status_code=503, detail="Not initialized")
     task = {"type": "trading", "channel": "alpaca", "action": "status"}
     task_id = await _orchestrator.enqueue_task(task)
-    return {"queued": True, "task_id": task_id, "message": "Alpaca繧｢繧ｫ繧ｦ繝ｳ繝育｢ｺ隱阪ち繧ｹ繧ｯ繧偵く繝･繝ｼ縺ｫ霑ｽ蜉縲・status縺ｧ邨先棡繧堤｢ｺ隱阪・}
+    return {"queued": True, "task_id": task_id, "message": "Alpacaアカウント確認タスクをキューに追加。/statusで結果を確認。"}
 
 
 @app.get("/test/alpaca/trade")
@@ -382,7 +380,7 @@ async def test_alpaca_trade():
         raise HTTPException(status_code=503, detail="Not initialized")
     task = {"type": "trading", "channel": "alpaca", "action": "analyze", "symbols": ["AAPL", "MSFT", "NVDA"]}
     task_id = await _orchestrator.enqueue_task(task)
-    return {"queued": True, "task_id": task_id, "message": "繝医Ξ繝ｼ繝牙・譫舌ち繧ｹ繧ｯ繧偵く繝･繝ｼ縺ｫ霑ｽ蜉縲・status縺ｧ邨先棡繧堤｢ｺ隱阪・}
+    return {"queued": True, "task_id": task_id, "message": "トレード分析タスクをキューに追加。/statusで結果を確認。"}
 
 
 @app.get("/debug/tasks")
