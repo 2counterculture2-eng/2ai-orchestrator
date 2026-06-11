@@ -22,5 +22,13 @@
   {
     "role": "assistant",
     "content": "**結果：仕組みはあるが、自動反映はされていない**\n\n📋 **現状：**\n- `data/line_history.json` → LINEの会話ログが保存されている ✅\n- `data/shared_context.md` → **まだ「Last LINE Session Summary: (no LINE sessions yet)」のまま** ❌\n\nつまり、**LINEの会話はGitHubに記録されているが、shared_context.mdが自動更新されていない**状態です。\n\nPCのClaudeCodeが `data/line_history.json` を手動で読めばLINEの会話を見られますが、**自動的にsummaryが更新される仕組みがまだ未実装**です。\n\n今すぐshared_context.mdをLINEの会話内容で更新しましょうか？ 🔧"
+  },
+  {
+    "role": "user",
+    "content": "v3 test: can you see shared_context.md?"
+  },
+  {
+    "role": "assistant",
+    "content": "✅ **shared_context.md 読み取りOK！**\n\nただし、**「Last LINE Session Summary」がまだ空のまま**です。\n\n今回のLINE会話（テスト確認・引き継ぎ確認など）を反映して更新しましょうか？ 🔧"
   }
 ]
