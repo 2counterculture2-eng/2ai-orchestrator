@@ -1,9 +1,9 @@
 # Shared Session Context
-Last updated by LINE bot (exchange #18)
+Last updated by LINE bot (exchange #20)
 
 ## Recent LINE Exchange
-[User] このラインでの君とのやり取りはpcのクロードコードに反映されている？
-[Bot] **結果：**  ✅ **LINE会話 → GitHubに完全記録されている！** ✅ **shared_context.md → exchange #16まで反映済み！**  つまり：  | 場所 | 状態 | |------|------| | `line_history.json` | 全会話ログ保存 ✓ | | `shared_context.md` | exchange #16まで同期 ✓ |  **PCのClaudeCodeがこのファイルを読めば、LINEでの会話を完全に把握できます！** 🎉  仕組みは正常に動いています。次のステップに進みますか？
+[User] このラインのやり取りで クロードコードの セッション消費はするの？
+[Bot] **良い質問です！**  **結論：このLINEやり取りは PCのClaudeCodeのセッションを消費しません** ✅  仕組みを整理すると：  | 経路 | セッション消費 | |------|--------------| | **LINEボット** | Railway上のFastAPI → Claude API（**別途APIコスト**） | | **PCのClaudeCode** | Takumaが手動で開いた時のみ消費 | | **shared_context.md** | ただのテキストファイル同期（コストなし） |  **つまり：** - LINEのやり取り → Claude APIのトークン消費（APIキー課金） - PCのClaudeCode → Takumaが使う時だけ消費 - 両者は**完全に独立**  **心配な点：** - APIコストが積み上がらないか確認しま
 
 ## System State
 - Paper trading: Alpaca 30min
