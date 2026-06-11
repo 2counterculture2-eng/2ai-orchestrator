@@ -122,7 +122,7 @@ class DevAgent:
             return "Max tool call depth reached."
 
         resp = self.claude.messages.create(
-            model="claude-opus-4-8",
+            model="claude-sonnet-4-6",
             max_tokens=2048,
             system=SYSTEM_PROMPT,
             tools=TOOLS,
