@@ -1,11 +1,13 @@
 ﻿"""
-orchestrator_core.py v2
+orchestrator_core.py v3
 Main orchestrator: routes tasks to workers, manages schedules, handles self-repair.
-Principle: always asks 'does this put money in Takuma-san account?'
 
 Schedule:
   - Trading loop: every 30 min during US market hours (Mon-Fri 13:30-21:00 UTC)
   - Slow loop: every 4 hours for translation scans (only if API keys set) + weekly report
+LINE:
+  - handle_line_command routes status queries to real system data
+  - _interpret_free_text injects live system context into Claude prompt
 """
 import asyncio
 import logging
@@ -40,6 +42,11 @@ MARKET_CLOSE_MINUTES_UTC = 21 * 60
 TRADE_SYMBOLS = ["AAPL", "MSFT", "NVDA", "SPY", "QQQ", "META", "GOOGL"]
 TRADE_INTERVAL_SECONDS = 30 * 60
 
+STATUS_KEYWORDS = [
+    "status", "状況", "進行", "どこまで", "ロードマップ", "今", "現在",
+    "report", "レポート", "収益", "収入", "いくら", "トレード", "取引",
+]
+
 
 def _is_us_market_open() -> bool:
     now = datetime.now(timezone.utc)
@@ -63,12 +70,12 @@ class OrchestratorCore:
 
     async def start(self):
         self._running = True
-        logger.info("OrchestratorCore v2 starting")
-        self.db.log_event("orchestrator_start", {"version": "v2"})
+        logger.info("OrchestratorCore v3 starting")
+        self.db.log_event("orchestrator_start", {"version": "v3"})
         asyncio.create_task(self._task_processor())
         asyncio.create_task(self._trading_loop())
         asyncio.create_task(self._slow_loop())
-        logger.info("OrchestratorCore v2 started")
+        logger.info("OrchestratorCore v3 started")
 
     async def stop(self):
         self._running = False
@@ -77,11 +84,16 @@ class OrchestratorCore:
         await self.line.close()
         logger.info("OrchestratorCore stopped")
 
+    def _is_status_query(self, text: str) -> bool:
+        text_lower = text.lower()
+        return any(kw in text_lower for kw in STATUS_KEYWORDS)
+
     async def handle_line_command(self, command, args, reply_token):
-        if command == "report":
+        full_text = args or command
+        if command in ("report", "レポート"):
             summary = self.db.build_weekly_summary()
             await self.line.send_weekly_report(summary)
-        elif command == "status":
+        elif command in ("status", "状況", "進行") or self._is_status_query(full_text):
             status = await self._system_status()
             await self.line.reply(reply_token, status)
         elif command == "pause":
@@ -93,7 +105,7 @@ class OrchestratorCore:
             asyncio.create_task(self._slow_loop())
             await self.line.reply(reply_token, "システムを再開しました。")
         else:
-            resp = await self._interpret_free_text(args or command)
+            resp = await self._interpret_free_text(full_text)
             await self.line.reply(reply_token, resp)
 
     async def enqueue_task(self, task):
@@ -215,26 +227,48 @@ class OrchestratorCore:
         except Exception as e:
             logger.error(f"Self-heal failed: {e}")
 
-    async def _system_status(self):
-        pending = len(self.db.get_pending_tasks())
+    async def _system_status(self) -> str:
+        summary = self.db.build_weekly_summary()
+        pending = self._task_queue.qsize()
         monthly = self.db.get_monthly_revenue()
-        rev_str = ", ".join(f"{k}: ${v:.2f}" for k, v in monthly.items()) or "なし"
+        total_rev = self.db.get_total_revenue()
+        tasks_today = summary.get("tasks_total", 0)
+        tasks_ok = summary.get("tasks_completed", 0)
+        tasks_fail = summary.get("tasks_failed", 0)
         market_status = "開場中" if _is_us_market_open() else "閉場中"
+        rev_str = "\n".join(f"  {k}: " for k, v in monthly.items()) if monthly else "  なし"
+        now_jst = datetime.now(timezone.utc).replace(tzinfo=None)
         return (
-            f"システム稼働中 (v2)\n"
+            f"=== 2AI Orchestrator v3 ===\n"
+            f"稼働状態: 正常稼働中\n"
             f"米国市場: {market_status}\n"
-            f"待機タスク: {pending}\n"
-            f"今月の収益: {rev_str}\n"
-            f"累計: ${self.db.get_total_revenue():.2f}"
+            f"今日のタスク: 完了{tasks_ok} / 失敗{tasks_fail} / 合計{tasks_today}\n"
+            f"今月の収益:\n{rev_str}\n"
+            f"累計: \n"
+            f"待機中タスク: {pending}\n"
+            f"---\n"
+            f"トレード: Alpacaペーパー（30分毎・市場時間のみ）\n"
+            f"翻訳: APIキー待ち"
         )
 
-    async def _interpret_free_text(self, text):
+    async def _interpret_free_text(self, text) -> str:
         try:
+            status = await self._system_status()
+            system_prompt = (
+                "You are the AI controller for an autonomous income system called 2AI Orchestrator.\n"
+                "You run on Railway (cloud server) and are always online, even when the user's PC is off.\n"
+                "Answer briefly in Japanese.\n\n"
+                f"=== CURRENT SYSTEM STATE ===\n{status}\n=== END STATE ===\n\n"
+                "Use the system state above to answer questions about progress, status, or trading.\n"
+                "Available commands the user can send: status, report, pause, resume"
+            )
             resp = self.claude.messages.create(
-                model=self.config.claude_haiku_model, max_tokens=300,
-                system="You are the AI assistant for an autonomous income system. Answer briefly in Japanese.",
+                model=self.config.claude_haiku_model,
+                max_tokens=400,
+                system=system_prompt,
                 messages=[{"role": "user", "content": text}],
             )
             return resp.content[0].text
-        except Exception:
+        except Exception as e:
+            logger.error(f"interpret_free_text failed: {e}")
             return "申し訳ありません、処理できませんでした。"
