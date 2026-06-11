@@ -419,8 +419,9 @@ if __name__ == "__main__":
 @app.post("/debug/webhook-test")
 async def debug_webhook_test(background_tasks: BackgroundTasks):
     """Simulate a LINE message to test dev_agent v3 (no signature required)."""
+    import os as _os
     test_text = "v3 test: can you see shared_context.md?"
-    user_id = _db.get_config("line_user_id") or ""
+    user_id = _db.get_config("line_user_id") or _os.getenv("LINE_USER_ID", "")
     if not user_id:
         return {"error": "no line_user_id configured"}
     background_tasks.add_task(_process_dev_agent_message, test_text, "debug-reply-token", user_id)
