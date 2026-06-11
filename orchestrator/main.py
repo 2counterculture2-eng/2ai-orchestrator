@@ -415,3 +415,28 @@ if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run("orchestrator.main:app", host="0.0.0.0", port=port, reload=False)
+
+@app.post("/debug/webhook-test")
+async def debug_webhook_test(background_tasks: BackgroundTasks):
+    """Simulate a LINE message to test dev_agent v3 (no signature required)."""
+    test_text = "v3 test: can you see shared_context.md?"
+    user_id = _db.get_config("line_user_id") or ""
+    if not user_id:
+        return {"error": "no line_user_id configured"}
+    background_tasks.add_task(_process_dev_agent_message, test_text, "debug-reply-token", user_id)
+    return {"success": True, "message": test_text, "user_id_prefix": user_id[:15] + "..."}
+
+
+async def _process_dev_agent_message(text: str, reply_token: str, user_id: str):
+    """Internal helper to process a message through dev_agent."""
+    try:
+        response = await _orchestrator.dev_agent.run(text)
+        if len(response) <= 2000:
+            await _line.send_text(response, user_id=user_id)
+        else:
+            for i in range(0, len(response), 2000):
+                await _line.send_text(response[i:i+2000], user_id=user_id)
+    except Exception as e:
+        logger.error("dev_agent test error: %s", e)
+        await _line.send_text("dev_agent error: " + str(e)[:200], user_id=user_id)
+
