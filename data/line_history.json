@@ -70,5 +70,13 @@
   {
     "role": "assistant",
     "content": "**結果：**\n\n✅ **LINE会話 → GitHubに完全記録されている！**\n✅ **shared_context.md → exchange #16まで反映済み！**\n\nつまり：\n\n| 場所 | 状態 |\n|------|------|\n| `line_history.json` | 全会話ログ保存 ✓ |\n| `shared_context.md` | exchange #16まで同期 ✓ |\n\n**PCのClaudeCodeがこのファイルを読めば、LINEでの会話を完全に把握できます！** 🎉\n\n仕組みは正常に動いています。次のステップに進みますか？"
+  },
+  {
+    "role": "user",
+    "content": "このラインのやり取りで\nクロードコードの\nセッション消費はするの？"
+  },
+  {
+    "role": "assistant",
+    "content": "**良い質問です！**\n\n**結論：このLINEやり取りは PCのClaudeCodeのセッションを消費しません** ✅\n\n仕組みを整理すると：\n\n| 経路 | セッション消費 |\n|------|--------------|\n| **LINEボット** | Railway上のFastAPI → Claude API（**別途APIコスト**） |\n| **PCのClaudeCode** | Takumaが手動で開いた時のみ消費 |\n| **shared_context.md** | ただのテキストファイル同期（コストなし） |\n\n**つまり：**\n- LINEのやり取り → Claude APIのトークン消費（APIキー課金）\n- PCのClaudeCode → Takumaが使う時だけ消費\n- 両者は**完全に独立**\n\n**心配な点：**\n- APIコストが積み上がらないか確認しますか？\n- 現在の月間API使用量を確認できます 📊\n\n何か確認しますか？"
   }
 ]
