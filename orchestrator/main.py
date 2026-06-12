@@ -383,6 +383,34 @@ async def test_alpaca_trade():
     return {"queued": True, "task_id": task_id, "message": "トレード分析タスクをキューに追加。/statusで結果を確認。"}
 
 
+
+@app.get("/debug/av-test")
+async def debug_av_test():
+    """Test Alpha Vantage directly from Railway."""
+    import httpx as _httpx
+    av_key = _config.alpha_vantage_api_key if _config else ""
+    results = {"av_key_set": bool(av_key), "av_key_prefix": av_key[:4] if av_key else ""}
+    try:
+        async with _httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                "https://www.alphavantage.co/query",
+                params={"function": "TIME_SERIES_DAILY", "symbol": "SPY", "outputsize": "compact", "apikey": av_key}
+            )
+            data = resp.json()
+            results["status_code"] = resp.status_code
+            results["top_keys"] = list(data.keys())[:5]
+            results["has_ts"] = "Time Series (Daily)" in data
+            if "Note" in data:
+                results["note"] = data["Note"]
+            if "Information" in data:
+                results["information"] = data["Information"]
+            if "Time Series (Daily)" in data:
+                dates = sorted(data["Time Series (Daily)"].keys(), reverse=True)
+                results["days_count"] = len(dates)
+                results["latest_date"] = dates[0] if dates else None
+    except Exception as e:
+        results["error"] = str(e)
+    return results
 @app.get("/debug/tasks")
 async def debug_tasks():
     """Return recent tasks with full error messages for debugging."""
