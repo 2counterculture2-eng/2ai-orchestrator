@@ -86,5 +86,13 @@
   {
     "role": "assistant",
     "content": "**判明しました！**\n\n| 設定 | モデル |\n|------|--------|\n| **LINEボット（DevAgent）** | `claude-sonnet-4-5` |\n| **PCのClaudeCode** | `claude-sonnet-4-6` |\n\n**つまり：**\n- PCのClaudeCodeを**Opus**に変えても → LINEボットは**変わらない** ❌\n- LINEボットを**Opus**に変えたければ → `dev_agent.py`のモデル名を変更してDeployが必要 ✅\n\n**LINEボットのモデルをアップグレードしますか？** 🔧"
+  },
+  {
+    "role": "user",
+    "content": "ロードマップで\n次にやる作業は？"
+  },
+  {
+    "role": "assistant",
+    "content": "**現在のフェーズ確認完了！**\n\nロードマップ上の**次のアクション**はこちらです：\n\n---\n\n## 📍 現在地：Phase 1（ペーパートレード稼働中）\n\n✅ 完了済み：\n- Railway デプロイ\n- LINE Bot 連携\n- Alpaca ペーパートレード（30分間隔）\n\n---\n\n## 🔜 次にやる作業（優先順）\n\n**① 翻訳チャンネル立ち上げ（収益に最速）**\n- Smartcat / Upwork / Fiverr の APIキー取得\n- 翻訳エージェントをデプロイ\n- → **即時収益の可能性あり**\n\n**② トレード結果の確認・改善**\n- ペーパートレードのPnLをLINEに自動報告\n- 戦略改善ループを回す\n\n**③ LINEボットのモデルアップグレード**\n- `claude-sonnet-4-5` → `4-6`（前回話題）\n\n---\n\n**どれから始めますか？**\n翻訳チャンネルのAPIキーはお持ちですか？ 🔧"
   }
 ]
