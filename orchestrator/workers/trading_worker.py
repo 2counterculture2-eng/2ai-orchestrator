@@ -205,7 +205,11 @@ class TradingWorker(BaseWorker):
         market_data = {}
         signals = {}
 
-        for symbol in symbols[:3]:
+        # Rate limit: Alpha Vantage free tier = 5 requests/minute. Analyze 1 symbol per cycle.
+        symbol_idx = hash(str(datetime.now(timezone.utc).date())) % len(symbols)
+        analysis_symbols = [symbols[symbol_idx % len(symbols[:3])]]
+
+        for symbol in analysis_symbols:
             try:
                 if not av_key:
                     continue
