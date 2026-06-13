@@ -1,9 +1,11 @@
 """
-trading_worker.py v4
-Rule-based momentum trading (MA crossover + trend filter).
-Market data: yfinance library (Yahoo Finance) - handles auth/cookies automatically.
+trading_worker.py v5
+RSI2 Mean Reversion + 200-day MA filter strategy.
+Market data: Alpaca data API (primary, confirmed working).
+Entry: close > 200-day MA AND RSI(2) < 5
+Exit: RSI(2) > 65
+Universe: SPY, QQQ, IWM (liquid ETFs - lower individual stock risk)
 Claude: sentiment filter only - NOT the primary trade decision maker.
-Primary signal: MA5 > MA20 > MA50 = uptrend buy; MA5 < MA20 = exit.
 Phase 1: paper trading only (Alpaca paper account).
 """
 import logging
@@ -20,11 +22,11 @@ from ..alpaca_client import AlpacaInternalClient
 
 logger = logging.getLogger(__name__)
 
-SENTIMENT_SYSTEM = """You are a market sentiment analyst. Assess if trend-following conditions are favorable.
+SENTIMENT_SYSTEM = """You are a market sentiment analyst. Assess if mean reversion conditions are favorable.
 Return JSON only: {"sentiment": "positive"|"neutral"|"negative", "risk_level": "low"|"medium"|"high", "note": "brief"}
-Secondary filter only - primary signal is rule-based MA crossover."""
+Secondary filter only - primary signal is rule-based RSI2 mean reversion."""
 
-MIN_DAYS_REQUIRED = 25
+MIN_DAYS_REQUIRED = 205  # 200-day MA needs 200+ bars
 
 
 def compute_ma(prices: List[float], period: int) -> Optional[float]:
@@ -33,63 +35,80 @@ def compute_ma(prices: List[float], period: int) -> Optional[float]:
     return statistics.mean(prices[:period])
 
 
-def compute_momentum(prices: List[float], period: int) -> Optional[float]:
-    if len(prices) <= period:
+def compute_rsi(prices: List[float], period: int = 2) -> Optional[float]:
+    """RSI calculation. prices sorted newest-first."""
+    if len(prices) < period + 1:
         return None
-    return (prices[0] - prices[period]) / prices[period] * 100
+    p = list(reversed(prices[:period + 10]))
+    gains, losses = [], []
+    for i in range(1, len(p)):
+        diff = p[i] - p[i - 1]
+        gains.append(max(diff, 0))
+        losses.append(max(-diff, 0))
+    if not gains:
+        return None
+    avg_gain = statistics.mean(gains[-period:])
+    avg_loss = statistics.mean(losses[-period:])
+    if avg_loss == 0:
+        return 100.0
+    rs = avg_gain / avg_loss
+    return round(100 - (100 / (1 + rs)), 2)
 
 
 def rule_based_signal(symbol: str, closes: List[float]) -> Dict:
-    """MA crossover momentum strategy. closes sorted newest-first."""
-    ma5 = compute_ma(closes, 5)
-    ma20 = compute_ma(closes, 20)
-    ma50 = compute_ma(closes, 50)
-    mom60 = compute_momentum(closes, 60)
-    mom20 = compute_momentum(closes, 20)
+    """RSI2 mean reversion strategy with 200-day MA filter. closes sorted newest-first."""
+    ma200 = compute_ma(closes, 200)
+    rsi2 = compute_rsi(closes, 2)
+    current_price = closes[0] if closes else None
 
-    if ma5 is None or ma20 is None:
+    if ma200 is None or rsi2 is None or current_price is None:
         return {"action": "hold", "confidence": 0.0, "reason": "insufficient data",
-                "ma5": None, "ma20": None, "ma50": ma50}
+                "ma200": None, "rsi2": None, "price": current_price}
 
+    above_ma200 = current_price > ma200
     action = "hold"
     confidence = 0.0
     reason_parts = []
 
-    uptrend_ma = ma5 > ma20
-    strong_uptrend = (ma50 is not None) and ma5 > ma20 and ma20 > ma50
+    if above_ma200:
+        reason_parts.append(f"price({current_price:.2f})>MA200({ma200:.2f})")
 
-    if uptrend_ma:
-        reason_parts.append(f"MA5({ma5:.2f})>MA20({ma20:.2f})")
-        confidence += 0.4
-    if strong_uptrend:
-        reason_parts.append(f"MA20>MA50({ma50:.2f})")
-        confidence += 0.2
-    if mom60 is not None and mom60 > 5:
-        reason_parts.append(f"60d_mom={mom60:.1f}%")
-        confidence += 0.2
-    if mom20 is not None and mom20 > 2:
-        reason_parts.append(f"20d_mom={mom20:.1f}%")
-        confidence += 0.1
-
-    if uptrend_ma and confidence >= 0.6:
-        action = "buy"
-    elif not uptrend_ma:
-        action = "sell"
-        confidence = 0.5
-        reason_parts = [f"MA5({ma5:.2f})<MA20({ma20:.2f}) exit signal"]
+        if rsi2 < 5:
+            action = "buy"
+            confidence = 0.8
+            reason_parts.append(f"RSI2({rsi2:.1f})<5 OVERSOLD")
+        elif rsi2 < 10:
+            action = "buy"
+            confidence = 0.65
+            reason_parts.append(f"RSI2({rsi2:.1f})<10 oversold")
+        elif rsi2 > 65:
+            action = "sell"
+            confidence = 0.7
+            reason_parts.append(f"RSI2({rsi2:.1f})>65 OVERBOUGHT exit")
+        else:
+            reason_parts.append(f"RSI2({rsi2:.1f}) neutral - wait")
+    else:
+        action = "hold"
+        confidence = 0.0
+        reason_parts.append(f"price({current_price:.2f})<MA200({ma200:.2f}) DOWNTREND - no entry")
+        if rsi2 > 65:
+            action = "sell"
+            confidence = 0.6
+            reason_parts.append(f"RSI2({rsi2:.1f})>65 exit")
 
     return {
         "action": action,
         "confidence": round(min(confidence, 1.0), 2),
         "reason": "; ".join(reason_parts) if reason_parts else "no signal",
-        "ma5": ma5, "ma20": ma20, "ma50": ma50, "mom60": mom60, "mom20": mom20,
+        "ma200": ma200, "rsi2": rsi2, "price": current_price,
+        "above_ma200": above_ma200,
     }
 
 
 async def fetch_closes_alpaca(symbol: str, alpaca_client) -> Optional[List[float]]:
     """Primary: Alpaca data API via internal Cognito JWT. No rate limits."""
     try:
-        bars = await alpaca_client.get_bars(symbol, limit=150)
+        bars = await alpaca_client.get_bars(symbol, limit=220)
         if not bars or len(bars) < MIN_DAYS_REQUIRED:
             logger.warning(f"Alpaca bars {symbol}: {len(bars) if bars else 0} bars")
             return None
@@ -101,51 +120,16 @@ async def fetch_closes_alpaca(symbol: str, alpaca_client) -> Optional[List[float
         return None
 
 
-def fetch_closes_pandas_datareader_sync(symbol: str, days: int = 150) -> Optional[List[float]]:
-    """Primary: pandas_datareader with Stooq backend. Works from cloud IPs, no API key."""
-    try:
-        import pandas_datareader.data as web
-        end = datetime.now(timezone.utc).date()
-        start = end - timedelta(days=days)
-        df = web.DataReader(symbol, "stooq", start=str(start), end=str(end))
-        if df is None or len(df) < MIN_DAYS_REQUIRED:
-            logger.warning(f"{symbol}: pandas_datareader/stooq returned {0 if df is None else len(df)} rows")
-            return None
-        closes = df["Close"].tolist()  # already sorted newest-first by stooq
-        logger.info(f"pandas_datareader/stooq {symbol}: {len(closes)} bars")
-        return closes
-    except Exception as e:
-        logger.warning(f"pandas_datareader/stooq failed for {symbol}: {e}")
-        return None
-
-
-def fetch_closes_yfinance_sync(symbol: str, period: str = "6mo") -> Optional[List[float]]:
-    """Secondary: yfinance library. May fail from cloud IPs if Yahoo blocks."""
-    try:
-        import yfinance as yf
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period)
-        if hist is None or len(hist) < MIN_DAYS_REQUIRED:
-            logger.warning(f"{symbol}: yfinance returned {0 if hist is None else len(hist)} rows")
-            return None
-        closes = list(reversed(hist["Close"].tolist()))
-        logger.info(f"yfinance {symbol}: {len(closes)} bars")
-        return closes
-    except Exception as e:
-        logger.warning(f"yfinance failed for {symbol}: {e}")
-        return None
-
-
 async def fetch_closes_stooq_http(symbol: str, http: httpx.AsyncClient) -> Optional[List[float]]:
-    """Tertiary: Direct Stooq HTTP with User-Agent header."""
+    """Fallback: Direct Stooq HTTP."""
     try:
+        from datetime import timedelta
         end = datetime.now(timezone.utc).date()
-        start = end - timedelta(days=200)
+        start = end - timedelta(days=320)
         url = f"https://stooq.com/q/d/l/?s={symbol.lower()}.us&d1={start.strftime('%Y%m%d')}&d2={end.strftime('%Y%m%d')}&i=d"
         headers = {"User-Agent": "Mozilla/5.0 (compatible; datareader/1.0)"}
         resp = await http.get(url, timeout=20, follow_redirects=True, headers=headers)
         if resp.status_code != 200:
-            logger.warning(f"Stooq HTTP {symbol}: status {resp.status_code}")
             return None
         lines = resp.text.strip().splitlines()
         if len(lines) < MIN_DAYS_REQUIRED + 1:
@@ -160,7 +144,7 @@ async def fetch_closes_stooq_http(symbol: str, http: httpx.AsyncClient) -> Optio
                     pass
         if len(closes) < MIN_DAYS_REQUIRED:
             return None
-        closes.reverse()  # oldest first → newest first
+        closes.reverse()
         logger.info(f"Stooq HTTP {symbol}: {len(closes)} bars")
         return closes
     except Exception as e:
@@ -223,8 +207,6 @@ class TradingWorker(BaseWorker):
             self.db.record_error("trading_worker", str(e))
             return TaskResult(success=False, task_id=task_id, error=str(e))
 
-    # ---- Alpaca ----
-
     async def _handle_alpaca(self, task_id: str, task: dict) -> TaskResult:
         if not self._alpaca and not self.config.alpaca_api_key:
             return TaskResult(success=False, task_id=task_id, error="Alpaca not configured")
@@ -257,9 +239,8 @@ class TradingWorker(BaseWorker):
             return TaskResult(success=False, task_id=task_id, error=f"Alpaca HTTP {e.response.status_code}")
 
     async def _alpaca_analyze_and_trade(self, task_id: str, task: dict) -> TaskResult:
-        symbols = task.get("symbols", ["AAPL", "MSFT", "NVDA", "SPY", "QQQ"])
+        symbols = task.get("symbols", ["SPY", "QQQ", "IWM"])
 
-        # Get account info
         try:
             if self._alpaca:
                 account = await self._alpaca.get_account()
@@ -272,29 +253,18 @@ class TradingWorker(BaseWorker):
         except Exception as e:
             return TaskResult(success=False, task_id=task_id, error=f"Cannot get account: {e}")
 
-        # Fetch price history: Alpaca data API → pandas_datareader/Stooq → yfinance → Stooq HTTP
         import asyncio
         market_data = {}
         signals = {}
         loop = asyncio.get_event_loop()
 
-        for symbol in symbols[:5]:
+        for symbol in symbols[:3]:
             closes = None
 
-            # Primary: Alpaca data API (uses existing Cognito JWT, no rate limits)
             if self._alpaca:
                 closes = await fetch_closes_alpaca(symbol, self._alpaca)
 
             if closes is None:
-                logger.info(f"{symbol}: Alpaca data failed, trying pandas_datareader/Stooq")
-                closes = await loop.run_in_executor(None, fetch_closes_pandas_datareader_sync, symbol)
-
-            if closes is None:
-                logger.info(f"{symbol}: pandas_datareader failed, trying yfinance")
-                closes = await loop.run_in_executor(None, fetch_closes_yfinance_sync, symbol)
-
-            if closes is None:
-                logger.info(f"{symbol}: yfinance failed, trying Stooq HTTP")
                 closes = await fetch_closes_stooq_http(symbol, self._http)
 
             if closes is None:
@@ -308,17 +278,15 @@ class TradingWorker(BaseWorker):
             }
             sig = rule_based_signal(symbol, closes)
             signals[symbol] = sig
-            logger.info(f"{symbol}: action={sig['action']} conf={sig['confidence']} | {sig['reason']}")
+            logger.info(f"{symbol}: action={sig['action']} conf={sig['confidence']} rsi2={sig.get('rsi2')} | {sig['reason']}")
 
         if not market_data:
-            return TaskResult(success=False, task_id=task_id,
-                              error="No market data fetched (yfinance + Stooq both failed)")
+            return TaskResult(success=False, task_id=task_id, error="No market data fetched")
 
-        # Pick best buy signal
         buy_candidates = sorted(
             [(sym, sig) for sym, sig in signals.items()
              if sig["action"] == "buy" and sig["confidence"] >= 0.6],
-            key=lambda x: x[1]["confidence"], reverse=True
+            key=lambda x: x[1]["rsi2"],
         )
 
         if not buy_candidates:
@@ -340,17 +308,17 @@ class TradingWorker(BaseWorker):
 
             return TaskResult(success=True, task_id=task_id, data={
                 "signals": signals, "executed": False,
-                "reason": "No buy signal above threshold (rule-based MA crossover)"
+                "reason": "No RSI2 buy signal (price below 200MA or RSI2 not oversold)"
             })
 
         best_sym, best_sig = buy_candidates[0]
 
-        # Claude sentiment filter (secondary only)
         sentiment_ok = True
         claude_cost = 0.0
         try:
             summary = (f"Symbol: {best_sym}\nPrice: {market_data[best_sym]['close']:.2f}\n"
-                       f"Change: {market_data[best_sym]['change_pct']}%\nMA signal: {best_sig['reason']}")
+                       f"RSI2: {best_sig.get('rsi2')}\nMA200: {best_sig.get('ma200', 0):.2f}\n"
+                       f"Signal: {best_sig['reason']}")
             sent_text, claude_cost = self.call_claude(
                 system=SENTIMENT_SYSTEM, user=summary,
                 model=self.config.claude_haiku_model, max_tokens=100,
@@ -370,8 +338,7 @@ class TradingWorker(BaseWorker):
                 "reason": "Blocked by Claude sentiment filter"
             }, cost_usd=claude_cost)
 
-        # Execute buy (2% of portfolio max per trade)
-        notional = portfolio_value * 2.0 / 100
+        notional = portfolio_value * 20.0 / 100
         try:
             if self._alpaca:
                 order = await self._alpaca.place_order(best_sym, "buy", notional=notional)
@@ -384,7 +351,7 @@ class TradingWorker(BaseWorker):
                 )
                 order_resp.raise_for_status()
                 order = order_resp.json()
-            logger.info(f"Executed: buy {best_sym} ${notional:.2f} conf={best_sig['confidence']}")
+            logger.info(f"Executed: buy {best_sym} ${notional:.2f} RSI2={best_sig.get('rsi2')}")
             return TaskResult(
                 success=True, task_id=task_id,
                 data={"signal": best_sig, "executed": True, "symbol": best_sym,
@@ -410,8 +377,6 @@ class TradingWorker(BaseWorker):
             return TaskResult(success=False, task_id=task_id,
                               error=f"Close all failed: {e.response.status_code}")
 
-    # ---- OANDA ----
-
     async def _handle_oanda(self, task_id: str, task: dict) -> TaskResult:
         if not self.config.oanda_api_key:
             return TaskResult(success=False, task_id=task_id, error="OANDA API key not configured")
@@ -431,8 +396,6 @@ class TradingWorker(BaseWorker):
             except httpx.HTTPStatusError as e:
                 return TaskResult(success=False, task_id=task_id, error=f"OANDA HTTP {e.response.status_code}")
         return TaskResult(success=False, task_id=task_id, error="OANDA action not implemented")
-
-    # ---- Freqtrade ----
 
     async def _handle_freqtrade(self, task_id: str, task: dict) -> TaskResult:
         freqtrade_url = task.get("freqtrade_url", "http://localhost:8080")
