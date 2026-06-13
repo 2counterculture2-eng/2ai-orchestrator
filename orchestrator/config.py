@@ -1,5 +1,5 @@
 """
-config.py v1
+config.py v2
 Environment variable configuration for the 2AI Orchestrator.
 All secrets come from Railway environment variables (never hardcoded).
 """
@@ -18,20 +18,30 @@ class Config:
     # LINE Bot
     line_channel_access_token: str = ""
     line_channel_secret: str = ""
-    line_user_id: str = ""  # Takuma-san's LINE user ID for push messages
+    line_user_id: str = ""
 
-    # Trading APIs — Alpaca (internal auth flow; no traditional API keys needed)
+    # Trading APIs - Alpaca
     alpaca_email: str = ""
     alpaca_password: str = ""
     alpaca_mfa_secret: str = ""
     alpaca_paper_account_id: str = ""
-    # Legacy API key fields (kept for compatibility; unused when internal auth is active)
     alpaca_api_key: str = ""
     alpaca_secret_key: str = ""
     alpaca_base_url: str = "https://paper-api.alpaca.markets"
+
+    # Trading APIs - OANDA (legacy, keeping for compatibility)
     oanda_api_key: str = ""
     oanda_account_id: str = ""
-    oanda_environment: str = "practice"  # practice -> live after verification
+    oanda_environment: str = "practice"
+
+    # Trading APIs - GMO Coin (LIVE - FSA registered Japanese exchange)
+    gmo_coin_api_key: str = ""
+    gmo_coin_api_secret: str = ""
+
+    # Trading APIs - Bitget (SANDBOX ONLY - demo testing)
+    bitget_api_key: str = ""
+    bitget_api_secret: str = ""
+    bitget_passphrase: str = ""
 
     # Market data
     alpha_vantage_api_key: str = ""
@@ -39,14 +49,14 @@ class Config:
     # Freelance APIs
     smartcat_api_key: str = ""
     smartcat_account_id: str = ""
-    gigradar_api_key: str = ""  # Upwork via GigRadar
+    gigradar_api_key: str = ""
 
     # App settings
     port: int = 8000
     db_path: str = "/app/data/orchestrator.db"
     log_level: str = "INFO"
-    weekly_report_day: int = 0   # 0=Monday
-    weekly_report_hour: int = 9  # 09:00 JST
+    weekly_report_day: int = 0
+    weekly_report_hour: int = 9
 
     # Cost limits (USD/month)
     max_monthly_claude_cost: float = 10.0
@@ -72,6 +82,11 @@ class Config:
             oanda_api_key=os.getenv("OANDA_API_KEY", ""),
             oanda_account_id=os.getenv("OANDA_ACCOUNT_ID", ""),
             oanda_environment=os.getenv("OANDA_ENVIRONMENT", "practice"),
+            gmo_coin_api_key=os.getenv("GMO_COIN_API_KEY", ""),
+            gmo_coin_api_secret=os.getenv("GMO_COIN_API_SECRET", ""),
+            bitget_api_key=os.getenv("BITGET_API_KEY", ""),
+            bitget_api_secret=os.getenv("BITGET_API_SECRET", ""),
+            bitget_passphrase=os.getenv("BITGET_PASSPHRASE", ""),
             alpha_vantage_api_key=os.getenv("ALPHA_VANTAGE_API_KEY", ""),
             smartcat_api_key=os.getenv("SMARTCAT_API_KEY", ""),
             smartcat_account_id=os.getenv("SMARTCAT_ACCOUNT_ID", ""),
