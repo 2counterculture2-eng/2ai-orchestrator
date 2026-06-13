@@ -27,3 +27,6 @@ botocore==1.35.0
 # Data / utilities
 python-dotenv==1.0.1
 pydantic==2.10.3
+
+# Market data (no API key, no rate limits)
+yfinance==0.2.48
