@@ -1,5 +1,5 @@
 """
-main.py v2
+main.py v3
 FastAPI application entry point.
 Endpoints:
   GET  /              — health check
@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI):
     _orchestrator = OrchestratorCore(_config, _db, _line)
     _market = MarketDataClient(_config.alpha_vantage_api_key)
     await _orchestrator.start()
-    logger.info("2AI Orchestrator v2 started")
+    logger.info("2AI Orchestrator v3 started")
     yield
     await _orchestrator.stop()
     logger.info("2AI Orchestrator v1 stopped")
@@ -90,7 +90,7 @@ app = FastAPI(title="2AI Orchestrator", version="1.0.0", lifespan=lifespan)
 
 @app.get("/")
 async def health():
-    return {"status": "ok", "service": "2AI Orchestrator v2"}
+    return {"status": "ok", "service": "2AI Orchestrator v3 (GMO+Bitget)"}
 
 
 @app.get("/status")
@@ -292,7 +292,7 @@ async def admin_dashboard():
     </table>
   </div>
 </div>
-<div class="footer">2AI Orchestrator v2 — Railway deployment</div>
+<div class="footer">2AI Orchestrator v3 — GMO Coin + Bitget</div>
 </body>
 </html>"""
     return HTMLResponse(html)
