@@ -240,7 +240,7 @@ class TradingWorker(BaseWorker):
             return TaskResult(success=False, task_id=task_id, error=f"Alpaca HTTP {e.response.status_code}")
 
     async def _alpaca_analyze_and_trade(self, task_id: str, task: dict) -> TaskResult:
-        symbols = task.get("symbols", ["SPY", "QQQ", "IWM"])
+        symbols = task.get("symbols", ["AAPL", "MSFT", "NVDA"])
 
         try:
             if self._alpaca:
