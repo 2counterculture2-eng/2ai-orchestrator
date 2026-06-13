@@ -179,6 +179,35 @@ class AlpacaInternalClient:
                 cancelled += 1
         return cancelled
 
+    async def get_bars(self, symbol: str, limit: int = 100) -> Optional[list]:
+        """Fetch daily bars from Alpaca data API using the internal JWT.
+        Tries data.alpaca.markets first, then falls back to internal endpoint."""
+        await self._ensure_jwt()
+        from datetime import datetime, timezone, timedelta
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        start = (datetime.now(timezone.utc) - timedelta(days=200)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Try public data API with Bearer JWT
+        for base_url in [
+            "https://data.alpaca.markets/v2/stocks",
+            "https://app.alpaca.markets/internal/data/v2/stocks",
+        ]:
+            try:
+                r = await self._http.get(
+                    f"{base_url}/{symbol}/bars",
+                    headers=self._headers(),
+                    params={"timeframe": "1Day", "start": start, "end": end,
+                            "limit": limit, "adjustment": "raw", "feed": "iex"},
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    bars = data.get("bars", [])
+                    if bars:
+                        return bars
+            except Exception:
+                pass
+        return None
+
     async def close_all_positions(self) -> list:
         positions = await self.get_positions()
         results = []

@@ -420,6 +420,25 @@ async def debug_market_test():
     results = {}
     loop = _asyncio.get_event_loop()
 
+    # Test Alpaca data API via internal JWT
+    if _orchestrator and hasattr(_orchestrator, '_workers'):
+        from .workers.trading_worker import fetch_closes_alpaca
+        from .alpaca_client import AlpacaInternalClient
+        try:
+            alpaca = None
+            for w in _orchestrator._workers.values():
+                if hasattr(w, '_alpaca') and w._alpaca:
+                    alpaca = w._alpaca
+                    break
+            if alpaca:
+                closes = await fetch_closes_alpaca("SPY", alpaca)
+                results["alpaca_data_api"] = {"ok": closes is not None, "bars": len(closes) if closes else 0,
+                                               "sample": closes[0] if closes else None}
+            else:
+                results["alpaca_data_api"] = {"ok": False, "error": "no alpaca client"}
+        except Exception as e:
+            results["alpaca_data_api"] = {"ok": False, "error": str(e)}
+
     # Test pandas_datareader + Stooq
     def _pdr_test():
         try:

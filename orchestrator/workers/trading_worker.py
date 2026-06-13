@@ -86,6 +86,21 @@ def rule_based_signal(symbol: str, closes: List[float]) -> Dict:
     }
 
 
+async def fetch_closes_alpaca(symbol: str, alpaca_client) -> Optional[List[float]]:
+    """Primary: Alpaca data API via internal Cognito JWT. No rate limits."""
+    try:
+        bars = await alpaca_client.get_bars(symbol, limit=150)
+        if not bars or len(bars) < MIN_DAYS_REQUIRED:
+            logger.warning(f"Alpaca bars {symbol}: {len(bars) if bars else 0} bars")
+            return None
+        closes = [float(b["c"]) for b in reversed(bars)]  # newest first
+        logger.info(f"Alpaca data API {symbol}: {len(closes)} bars")
+        return closes
+    except Exception as e:
+        logger.warning(f"Alpaca data API failed for {symbol}: {e}")
+        return None
+
+
 def fetch_closes_pandas_datareader_sync(symbol: str, days: int = 150) -> Optional[List[float]]:
     """Primary: pandas_datareader with Stooq backend. Works from cloud IPs, no API key."""
     try:
@@ -257,14 +272,22 @@ class TradingWorker(BaseWorker):
         except Exception as e:
             return TaskResult(success=False, task_id=task_id, error=f"Cannot get account: {e}")
 
-        # Fetch price history: pandas_datareader/Stooq → yfinance → Stooq HTTP
+        # Fetch price history: Alpaca data API → pandas_datareader/Stooq → yfinance → Stooq HTTP
         import asyncio
         market_data = {}
         signals = {}
         loop = asyncio.get_event_loop()
 
         for symbol in symbols[:5]:
-            closes = await loop.run_in_executor(None, fetch_closes_pandas_datareader_sync, symbol)
+            closes = None
+
+            # Primary: Alpaca data API (uses existing Cognito JWT, no rate limits)
+            if self._alpaca:
+                closes = await fetch_closes_alpaca(symbol, self._alpaca)
+
+            if closes is None:
+                logger.info(f"{symbol}: Alpaca data failed, trying pandas_datareader/Stooq")
+                closes = await loop.run_in_executor(None, fetch_closes_pandas_datareader_sync, symbol)
 
             if closes is None:
                 logger.info(f"{symbol}: pandas_datareader failed, trying yfinance")
