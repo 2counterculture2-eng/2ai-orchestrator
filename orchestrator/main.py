@@ -413,9 +413,26 @@ async def debug_av_test():
     return results
 @app.get("/debug/market-test")
 async def debug_market_test():
-    """Test yfinance and Stooq directly from Railway to diagnose market data failures."""
+    """Test pandas_datareader/Stooq, yfinance, and Stooq HTTP from Railway."""
     import asyncio as _asyncio
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    import httpx as _httpx
     results = {}
+    loop = _asyncio.get_event_loop()
+
+    # Test pandas_datareader + Stooq
+    def _pdr_test():
+        try:
+            import pandas_datareader.data as web
+            end = _dt.now(_tz.utc).date()
+            start = end - _td(days=30)
+            df = web.DataReader("SPY", "stooq", start=str(start), end=str(end))
+            return {"ok": df is not None and len(df) > 0, "rows": len(df) if df is not None else 0,
+                    "sample": float(df["Close"].iloc[0]) if df is not None and len(df) > 0 else None}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    results["pandas_datareader_stooq"] = await loop.run_in_executor(None, _pdr_test)
 
     # Test yfinance
     def _yf_test():
@@ -423,26 +440,26 @@ async def debug_market_test():
             import yfinance as yf
             ticker = yf.Ticker("SPY")
             hist = ticker.history(period="1mo")
-            return {"ok": not hist.empty, "rows": len(hist), "sample": hist["Close"].tolist()[-1] if not hist.empty else None}
+            return {"ok": not hist.empty, "rows": len(hist), "sample": float(hist["Close"].iloc[-1]) if not hist.empty else None}
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
-    loop = _asyncio.get_event_loop()
     results["yfinance"] = await loop.run_in_executor(None, _yf_test)
 
-    # Test Stooq
+    # Test Stooq HTTP with User-Agent
     try:
-        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
-        import httpx as _httpx
-        end = _dt.now(_tz.utc)
+        end = _dt.now(_tz.utc).date()
         start = end - _td(days=30)
         url = f"https://stooq.com/q/d/l/?s=spy.us&d1={start.strftime('%Y%m%d')}&d2={end.strftime('%Y%m%d')}&i=d"
         async with _httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url, follow_redirects=True)
+            resp = await client.get(url, follow_redirects=True,
+                                    headers={"User-Agent": "Mozilla/5.0 (compatible; datareader/1.0)"})
             lines = resp.text.strip().splitlines()
-            results["stooq"] = {"status": resp.status_code, "lines": len(lines), "header": lines[0] if lines else None, "sample": lines[-1] if len(lines) > 1 else None}
+            results["stooq_http"] = {"status": resp.status_code, "lines": len(lines),
+                                     "header": lines[0] if lines else None,
+                                     "sample": lines[-1] if len(lines) > 1 else None}
     except Exception as e:
-        results["stooq"] = {"ok": False, "error": str(e)}
+        results["stooq_http"] = {"ok": False, "error": str(e)}
 
     return results
 

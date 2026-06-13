@@ -86,8 +86,26 @@ def rule_based_signal(symbol: str, closes: List[float]) -> Dict:
     }
 
 
+def fetch_closes_pandas_datareader_sync(symbol: str, days: int = 150) -> Optional[List[float]]:
+    """Primary: pandas_datareader with Stooq backend. Works from cloud IPs, no API key."""
+    try:
+        import pandas_datareader.data as web
+        end = datetime.now(timezone.utc).date()
+        start = end - timedelta(days=days)
+        df = web.DataReader(symbol, "stooq", start=str(start), end=str(end))
+        if df is None or len(df) < MIN_DAYS_REQUIRED:
+            logger.warning(f"{symbol}: pandas_datareader/stooq returned {0 if df is None else len(df)} rows")
+            return None
+        closes = df["Close"].tolist()  # already sorted newest-first by stooq
+        logger.info(f"pandas_datareader/stooq {symbol}: {len(closes)} bars")
+        return closes
+    except Exception as e:
+        logger.warning(f"pandas_datareader/stooq failed for {symbol}: {e}")
+        return None
+
+
 def fetch_closes_yfinance_sync(symbol: str, period: str = "6mo") -> Optional[List[float]]:
-    """Fetch daily close prices using yfinance library (handles Yahoo auth)."""
+    """Secondary: yfinance library. May fail from cloud IPs if Yahoo blocks."""
     try:
         import yfinance as yf
         ticker = yf.Ticker(symbol)
@@ -96,23 +114,25 @@ def fetch_closes_yfinance_sync(symbol: str, period: str = "6mo") -> Optional[Lis
             logger.warning(f"{symbol}: yfinance returned {0 if hist is None else len(hist)} rows")
             return None
         closes = list(reversed(hist["Close"].tolist()))
+        logger.info(f"yfinance {symbol}: {len(closes)} bars")
         return closes
     except Exception as e:
         logger.warning(f"yfinance failed for {symbol}: {e}")
         return None
 
 
-async def fetch_closes_stooq(symbol: str, http: httpx.AsyncClient) -> Optional[List[float]]:
-    """Fallback: Stooq (Polish financial portal, free, no rate limits, works from cloud)."""
+async def fetch_closes_stooq_http(symbol: str, http: httpx.AsyncClient) -> Optional[List[float]]:
+    """Tertiary: Direct Stooq HTTP with User-Agent header."""
     try:
-        from datetime import timedelta
         end = datetime.now(timezone.utc).date()
-        start = end - timedelta(days=150)
+        start = end - timedelta(days=200)
         url = f"https://stooq.com/q/d/l/?s={symbol.lower()}.us&d1={start.strftime('%Y%m%d')}&d2={end.strftime('%Y%m%d')}&i=d"
-        resp = await http.get(url, timeout=15, follow_redirects=True)
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; datareader/1.0)"}
+        resp = await http.get(url, timeout=20, follow_redirects=True, headers=headers)
         if resp.status_code != 200:
+            logger.warning(f"Stooq HTTP {symbol}: status {resp.status_code}")
             return None
-        lines = resp.text.strip().split("\n")
+        lines = resp.text.strip().splitlines()
         if len(lines) < MIN_DAYS_REQUIRED + 1:
             return None
         closes = []
@@ -125,10 +145,11 @@ async def fetch_closes_stooq(symbol: str, http: httpx.AsyncClient) -> Optional[L
                     pass
         if len(closes) < MIN_DAYS_REQUIRED:
             return None
-        closes.reverse()  # newest first
+        closes.reverse()  # oldest first → newest first
+        logger.info(f"Stooq HTTP {symbol}: {len(closes)} bars")
         return closes
     except Exception as e:
-        logger.warning(f"Stooq fallback failed for {symbol}: {e}")
+        logger.warning(f"Stooq HTTP failed for {symbol}: {e}")
         return None
 
 
@@ -236,20 +257,22 @@ class TradingWorker(BaseWorker):
         except Exception as e:
             return TaskResult(success=False, task_id=task_id, error=f"Cannot get account: {e}")
 
-        # Fetch price history: try yfinance first, fall back to Stooq
+        # Fetch price history: pandas_datareader/Stooq → yfinance → Stooq HTTP
         import asyncio
         market_data = {}
         signals = {}
+        loop = asyncio.get_event_loop()
 
         for symbol in symbols[:5]:
-            # Run yfinance in thread pool (it's synchronous)
-            loop = asyncio.get_event_loop()
-            closes = await loop.run_in_executor(None, fetch_closes_yfinance_sync, symbol)
+            closes = await loop.run_in_executor(None, fetch_closes_pandas_datareader_sync, symbol)
 
             if closes is None:
-                # Fallback to Stooq
-                logger.info(f"{symbol}: yfinance failed, trying Stooq")
-                closes = await fetch_closes_stooq(symbol, self._http)
+                logger.info(f"{symbol}: pandas_datareader failed, trying yfinance")
+                closes = await loop.run_in_executor(None, fetch_closes_yfinance_sync, symbol)
+
+            if closes is None:
+                logger.info(f"{symbol}: yfinance failed, trying Stooq HTTP")
+                closes = await fetch_closes_stooq_http(symbol, self._http)
 
             if closes is None:
                 logger.warning(f"{symbol}: all data sources failed")

@@ -30,3 +30,5 @@ pydantic==2.10.3
 
 # Market data (no API key, no rate limits)
 yfinance==0.2.48
+pandas-datareader==0.10.0
+lxml==5.3.0
