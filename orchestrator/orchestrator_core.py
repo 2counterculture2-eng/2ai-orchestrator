@@ -1,5 +1,5 @@
 ﻿"""
-orchestrator_core.py v4
+orchestrator_core.py v5
 Main orchestrator with DevAgent integration for LINE-based Claude Code sessions.
 All strings ASCII/English only (Rule 55).
 
@@ -175,6 +175,7 @@ class OrchestratorCore:
 
     async def _slow_loop(self):
         logger.info("Slow loop started (4-hour interval)")
+        _last_daily_report_date = None
         while self._running:
             try:
                 now = datetime.now(timezone.utc)
@@ -183,13 +184,56 @@ class OrchestratorCore:
                     await self.enqueue_task({"type": "translation", "channel": "smartcat", "action": "scan"})
                 if self.config.gigradar_api_key:
                     await self.enqueue_task({"type": "translation", "channel": "upwork", "action": "scan"})
-                if now.weekday() == self.config.weekly_report_day and now_hour_jst == self.config.weekly_report_hour:
-                    summary = self.db.build_weekly_summary()
-                    await self.line.send_weekly_report(summary)
-                    self.db.log_event("weekly_report_sent", summary)
+                # Daily Alpaca report at JST 21:00 (UTC 12:00)
+                if now_hour_jst == 21 and _last_daily_report_date != (now.year, now.month, now.day):
+                    _last_daily_report_date = (now.year, now.month, now.day)
+                    await self._send_daily_alpaca_report()
             except Exception as e:
                 logger.exception(f"Slow loop error: {e}")
             await asyncio.sleep(4 * 3600)
+
+    async def _send_daily_alpaca_report(self):
+        uid = self.db.get_config("line_user_id") or self.config.line_user_id
+        if not uid:
+            return
+        try:
+            acct_result = await self.trading_worker.execute({
+                "type": "trading", "channel": "alpaca", "action": "status"
+            })
+            acct = acct_result.data if acct_result and acct_result.data else {}
+            signal_result = await self.trading_worker.execute({
+                "type": "trading", "channel": "alpaca",
+                "action": "analyze", "symbols": ["AAPL", "MSFT", "NVDA"]
+            })
+            signals = {}
+            if signal_result and signal_result.data:
+                signals = signal_result.data.get("signals", {})
+            pv = acct.get("portfolio_value", 0)
+            cash = acct.get("cash", 0)
+            invested = pv - cash
+            sig_lines = []
+            for sym, sig in signals.items():
+                rsi2 = sig.get("rsi2", "?")
+                action = sig.get("action", "hold").upper()
+                above = "above" if sig.get("above_ma50") else "below"
+                sig_lines.append(f"  {sym}: {action} | RSI2={rsi2} | MA50 {above}")
+            executed = (signal_result.data.get("executed", False)
+                        if signal_result and signal_result.data else False)
+            trade_line = "Trade executed today" if executed else "No trade today"
+            lines = (
+                ["=== Daily Alpaca Report ===",
+                 f"Portfolio: ${pv:,.2f}",
+                 f"Cash: ${cash:,.2f}",
+                 f"Invested: ${invested:,.2f}",
+                 "---",
+                 "Signals (RSI2 strategy):"]
+                + sig_lines
+                + ["---", trade_line, "Strategy: RSI2<5 + above MA50 = BUY"]
+            )
+            await self.line.send_text("\n".join(lines), user_id=uid)
+            self.db.log_event("daily_alpaca_report_sent", {"portfolio_value": pv})
+        except Exception as e:
+            logger.error(f"Daily report failed: {e}")
 
     async def _run_task_safe(self, task):
         async with self._worker_semaphore:
