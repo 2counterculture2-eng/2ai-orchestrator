@@ -1,12 +1,13 @@
 """
 trading_worker.py v5
-RSI2 Mean Reversion + 200-day MA filter strategy.
-Market data: Alpaca data API (primary, confirmed working).
-Entry: close > 200-day MA AND RSI(2) < 5
+RSI2 Mean Reversion + 50-day MA trend filter strategy.
+Market data: Alpaca data API (primary, confirmed working, ~137 bars).
+Entry: close > MA50 AND RSI(2) < 5
 Exit: RSI(2) > 65
 Universe: SPY, QQQ, IWM (liquid ETFs - lower individual stock risk)
 Claude: sentiment filter only - NOT the primary trade decision maker.
 Phase 1: paper trading only (Alpaca paper account).
+Note: Using MA50 instead of MA200 because Alpaca returns ~137 bars max.
 """
 import logging
 import json
@@ -26,7 +27,7 @@ SENTIMENT_SYSTEM = """You are a market sentiment analyst. Assess if mean reversi
 Return JSON only: {"sentiment": "positive"|"neutral"|"negative", "risk_level": "low"|"medium"|"high", "note": "brief"}
 Secondary filter only - primary signal is rule-based RSI2 mean reversion."""
 
-MIN_DAYS_REQUIRED = 205  # 200-day MA needs 200+ bars
+MIN_DAYS_REQUIRED = 55  # MA50 needs 50+ bars; Alpaca returns ~137 bars
 
 
 def compute_ma(prices: List[float], period: int) -> Optional[float]:
@@ -56,22 +57,22 @@ def compute_rsi(prices: List[float], period: int = 2) -> Optional[float]:
 
 
 def rule_based_signal(symbol: str, closes: List[float]) -> Dict:
-    """RSI2 mean reversion strategy with 200-day MA filter. closes sorted newest-first."""
-    ma200 = compute_ma(closes, 200)
+    """RSI2 mean reversion strategy with MA50 trend filter. closes sorted newest-first."""
+    ma50 = compute_ma(closes, 50)
     rsi2 = compute_rsi(closes, 2)
     current_price = closes[0] if closes else None
 
-    if ma200 is None or rsi2 is None or current_price is None:
+    if ma50 is None or rsi2 is None or current_price is None:
         return {"action": "hold", "confidence": 0.0, "reason": "insufficient data",
-                "ma200": None, "rsi2": None, "price": current_price}
+                "ma50": None, "rsi2": None, "price": current_price}
 
-    above_ma200 = current_price > ma200
+    above_ma50 = current_price > ma50
     action = "hold"
     confidence = 0.0
     reason_parts = []
 
-    if above_ma200:
-        reason_parts.append(f"price({current_price:.2f})>MA200({ma200:.2f})")
+    if above_ma50:
+        reason_parts.append(f"price({current_price:.2f})>MA50({ma50:.2f})")
 
         if rsi2 < 5:
             action = "buy"
@@ -90,7 +91,7 @@ def rule_based_signal(symbol: str, closes: List[float]) -> Dict:
     else:
         action = "hold"
         confidence = 0.0
-        reason_parts.append(f"price({current_price:.2f})<MA200({ma200:.2f}) DOWNTREND - no entry")
+        reason_parts.append(f"price({current_price:.2f})<MA50({ma50:.2f}) DOWNTREND - no entry")
         if rsi2 > 65:
             action = "sell"
             confidence = 0.6
@@ -100,15 +101,15 @@ def rule_based_signal(symbol: str, closes: List[float]) -> Dict:
         "action": action,
         "confidence": round(min(confidence, 1.0), 2),
         "reason": "; ".join(reason_parts) if reason_parts else "no signal",
-        "ma200": ma200, "rsi2": rsi2, "price": current_price,
-        "above_ma200": above_ma200,
+        "ma50": ma50, "rsi2": rsi2, "price": current_price,
+        "above_ma50": above_ma50,
     }
 
 
 async def fetch_closes_alpaca(symbol: str, alpaca_client) -> Optional[List[float]]:
     """Primary: Alpaca data API via internal Cognito JWT. No rate limits."""
     try:
-        bars = await alpaca_client.get_bars(symbol, limit=220)
+        bars = await alpaca_client.get_bars(symbol, limit=150)
         if not bars or len(bars) < MIN_DAYS_REQUIRED:
             logger.warning(f"Alpaca bars {symbol}: {len(bars) if bars else 0} bars")
             return None
@@ -278,7 +279,7 @@ class TradingWorker(BaseWorker):
             }
             sig = rule_based_signal(symbol, closes)
             signals[symbol] = sig
-            logger.info(f"{symbol}: action={sig['action']} conf={sig['confidence']} rsi2={sig.get('rsi2')} | {sig['reason']}")
+            logger.info(f"{symbol}: action={sig['action']} conf={sig['confidence']} rsi2={sig.get('rsi2')} ma50={sig.get('ma50')} | {sig['reason']}")
 
         if not market_data:
             return TaskResult(success=False, task_id=task_id, error="No market data fetched")
@@ -317,7 +318,7 @@ class TradingWorker(BaseWorker):
         claude_cost = 0.0
         try:
             summary = (f"Symbol: {best_sym}\nPrice: {market_data[best_sym]['close']:.2f}\n"
-                       f"RSI2: {best_sig.get('rsi2')}\nMA200: {best_sig.get('ma200', 0):.2f}\n"
+                       f"RSI2: {best_sig.get('rsi2')}\nMA50: {best_sig.get('ma50', 0):.2f}\n"
                        f"Signal: {best_sig['reason']}")
             sent_text, claude_cost = self.call_claude(
                 system=SENTIMENT_SYSTEM, user=summary,
