@@ -411,6 +411,42 @@ async def debug_av_test():
     except Exception as e:
         results["error"] = str(e)
     return results
+@app.get("/debug/market-test")
+async def debug_market_test():
+    """Test yfinance and Stooq directly from Railway to diagnose market data failures."""
+    import asyncio as _asyncio
+    results = {}
+
+    # Test yfinance
+    def _yf_test():
+        try:
+            import yfinance as yf
+            ticker = yf.Ticker("SPY")
+            hist = ticker.history(period="1mo")
+            return {"ok": not hist.empty, "rows": len(hist), "sample": hist["Close"].tolist()[-1] if not hist.empty else None}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    loop = _asyncio.get_event_loop()
+    results["yfinance"] = await loop.run_in_executor(None, _yf_test)
+
+    # Test Stooq
+    try:
+        from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+        import httpx as _httpx
+        end = _dt.now(_tz.utc)
+        start = end - _td(days=30)
+        url = f"https://stooq.com/q/d/l/?s=spy.us&d1={start.strftime('%Y%m%d')}&d2={end.strftime('%Y%m%d')}&i=d"
+        async with _httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(url, follow_redirects=True)
+            lines = resp.text.strip().splitlines()
+            results["stooq"] = {"status": resp.status_code, "lines": len(lines), "header": lines[0] if lines else None, "sample": lines[-1] if len(lines) > 1 else None}
+    except Exception as e:
+        results["stooq"] = {"ok": False, "error": str(e)}
+
+    return results
+
+
 @app.get("/debug/tasks")
 async def debug_tasks():
     """Return recent tasks with full error messages for debugging."""
