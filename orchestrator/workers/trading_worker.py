@@ -1,9 +1,9 @@
 """
-trading_worker.py v3
+trading_worker.py v4
 Rule-based momentum trading (MA crossover + trend filter).
-Market data: yfinance (Yahoo Finance) - no API key, no rate limits, unlimited.
+Market data: yfinance library (Yahoo Finance) - handles auth/cookies automatically.
 Claude: sentiment filter only - NOT the primary trade decision maker.
-Primary signal: MA5 > MA20 > MA50 = uptrend buy; MA5 < MA20 = exit
+Primary signal: MA5 > MA20 > MA50 = uptrend buy; MA5 < MA20 = exit.
 Phase 1: paper trading only (Alpaca paper account).
 """
 import logging
@@ -20,9 +20,9 @@ from ..alpaca_client import AlpacaInternalClient
 
 logger = logging.getLogger(__name__)
 
-SENTIMENT_SYSTEM = """You are a market sentiment analyst. Given market data, assess if trend-following conditions are favorable.
-Return JSON only: {"sentiment": "positive"|"neutral"|"negative", "risk_level": "low"|"medium"|"high", "note": "brief reason"}
-This is a secondary filter only - primary signal is rule-based MA crossover."""
+SENTIMENT_SYSTEM = """You are a market sentiment analyst. Assess if trend-following conditions are favorable.
+Return JSON only: {"sentiment": "positive"|"neutral"|"negative", "risk_level": "low"|"medium"|"high", "note": "brief"}
+Secondary filter only - primary signal is rule-based MA crossover."""
 
 MIN_DAYS_REQUIRED = 25
 
@@ -40,7 +40,7 @@ def compute_momentum(prices: List[float], period: int) -> Optional[float]:
 
 
 def rule_based_signal(symbol: str, closes: List[float]) -> Dict:
-    """MA crossover momentum strategy. Closes are sorted newest-first."""
+    """MA crossover momentum strategy. closes sorted newest-first."""
     ma5 = compute_ma(closes, 5)
     ma20 = compute_ma(closes, 20)
     ma50 = compute_ma(closes, 50)
@@ -82,35 +82,53 @@ def rule_based_signal(symbol: str, closes: List[float]) -> Dict:
         "action": action,
         "confidence": round(min(confidence, 1.0), 2),
         "reason": "; ".join(reason_parts) if reason_parts else "no signal",
-        "ma5": ma5,
-        "ma20": ma20,
-        "ma50": ma50,
-        "mom60": mom60,
-        "mom20": mom20,
+        "ma5": ma5, "ma20": ma20, "ma50": ma50, "mom60": mom60, "mom20": mom20,
     }
 
 
-async def fetch_closes_yfinance(symbol: str, http: httpx.AsyncClient, days: int = 80) -> Optional[List[float]]:
-    """Fetch daily closes from Yahoo Finance (no API key, no rate limits)."""
+def fetch_closes_yfinance_sync(symbol: str, period: str = "6mo") -> Optional[List[float]]:
+    """Fetch daily close prices using yfinance library (handles Yahoo auth)."""
+    try:
+        import yfinance as yf
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period=period)
+        if hist is None or len(hist) < MIN_DAYS_REQUIRED:
+            logger.warning(f"{symbol}: yfinance returned {0 if hist is None else len(hist)} rows")
+            return None
+        closes = list(reversed(hist["Close"].tolist()))
+        return closes
+    except Exception as e:
+        logger.warning(f"yfinance failed for {symbol}: {e}")
+        return None
+
+
+async def fetch_closes_stooq(symbol: str, http: httpx.AsyncClient) -> Optional[List[float]]:
+    """Fallback: Stooq (Polish financial portal, free, no rate limits, works from cloud)."""
     try:
         from datetime import timedelta
         end = datetime.now(timezone.utc).date()
-        start = end - timedelta(days=days + 30)  # extra buffer for weekends/holidays
-        url = (
-            f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-            f"?interval=1d&range=6mo"
-        )
-        resp = await http.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=20)
+        start = end - timedelta(days=150)
+        url = f"https://stooq.com/q/d/l/?s={symbol.lower()}.us&d1={start.strftime('%Y%m%d')}&d2={end.strftime('%Y%m%d')}&i=d"
+        resp = await http.get(url, timeout=15, follow_redirects=True)
         if resp.status_code != 200:
             return None
-        data = resp.json()
-        closes_raw = data.get("chart", {}).get("result", [{}])[0].get("indicators", {}).get("quote", [{}])[0].get("close", [])
-        closes = [float(c) for c in closes_raw if c is not None]
+        lines = resp.text.strip().split("\n")
+        if len(lines) < MIN_DAYS_REQUIRED + 1:
+            return None
+        closes = []
+        for line in lines[1:]:
+            parts = line.split(",")
+            if len(parts) >= 5:
+                try:
+                    closes.append(float(parts[4]))
+                except ValueError:
+                    pass
         if len(closes) < MIN_DAYS_REQUIRED:
             return None
-        return list(reversed(closes))  # newest first
+        closes.reverse()  # newest first
+        return closes
     except Exception as e:
-        logger.warning(f"yfinance fetch failed for {symbol}: {e}")
+        logger.warning(f"Stooq fallback failed for {symbol}: {e}")
         return None
 
 
@@ -143,7 +161,6 @@ class TradingWorker(BaseWorker):
         task_id = self.new_task_id()
         channel = task.get("channel", "alpaca")
         self.db.create_task(task_id, self.task_type, channel, task)
-
         try:
             if channel == "alpaca":
                 result = await self._handle_alpaca(task_id, task)
@@ -152,7 +169,7 @@ class TradingWorker(BaseWorker):
             elif channel == "freqtrade":
                 result = await self._handle_freqtrade(task_id, task)
             else:
-                result = TaskResult(success=False, error=f"Unknown trading channel: {channel}")
+                result = TaskResult(success=False, error=f"Unknown channel: {channel}")
 
             status = "completed" if result.success else "failed"
             self.db.update_task(
@@ -164,9 +181,8 @@ class TradingWorker(BaseWorker):
             if result.revenue_usd > 0:
                 self.db.log_revenue(channel, result.revenue_usd, f"Trade {task_id}", task_id)
             return result
-
         except Exception as e:
-            logger.exception(f"TradingWorker error on task {task_id}")
+            logger.exception(f"TradingWorker error on {task_id}")
             self.db.update_task(task_id, "failed", error_msg=str(e))
             self.db.record_error("trading_worker", str(e))
             return TaskResult(success=False, task_id=task_id, error=str(e))
@@ -220,15 +236,25 @@ class TradingWorker(BaseWorker):
         except Exception as e:
             return TaskResult(success=False, task_id=task_id, error=f"Cannot get account: {e}")
 
-        # Fetch price history via Yahoo Finance (no rate limits)
+        # Fetch price history: try yfinance first, fall back to Stooq
+        import asyncio
         market_data = {}
         signals = {}
 
         for symbol in symbols[:5]:
-            closes = await fetch_closes_yfinance(symbol, self._http)
+            # Run yfinance in thread pool (it's synchronous)
+            loop = asyncio.get_event_loop()
+            closes = await loop.run_in_executor(None, fetch_closes_yfinance_sync, symbol)
+
             if closes is None:
-                logger.warning(f"{symbol}: failed to fetch from Yahoo Finance")
+                # Fallback to Stooq
+                logger.info(f"{symbol}: yfinance failed, trying Stooq")
+                closes = await fetch_closes_stooq(symbol, self._http)
+
+            if closes is None:
+                logger.warning(f"{symbol}: all data sources failed")
                 continue
+
             market_data[symbol] = {
                 "close": closes[0],
                 "change_pct": round((closes[0] - closes[1]) / closes[1] * 100, 2) if len(closes) > 1 else 0,
@@ -239,16 +265,17 @@ class TradingWorker(BaseWorker):
             logger.info(f"{symbol}: action={sig['action']} conf={sig['confidence']} | {sig['reason']}")
 
         if not market_data:
-            return TaskResult(success=False, task_id=task_id, error="No market data fetched from Yahoo Finance")
+            return TaskResult(success=False, task_id=task_id,
+                              error="No market data fetched (yfinance + Stooq both failed)")
 
         # Pick best buy signal
         buy_candidates = sorted(
-            [(sym, sig) for sym, sig in signals.items() if sig["action"] == "buy" and sig["confidence"] >= 0.6],
+            [(sym, sig) for sym, sig in signals.items()
+             if sig["action"] == "buy" and sig["confidence"] >= 0.6],
             key=lambda x: x[1]["confidence"], reverse=True
         )
 
         if not buy_candidates:
-            # Check for exit signals on held positions
             sell_candidates = [(sym, sig) for sym, sig in signals.items() if sig["action"] == "sell"]
             if sell_candidates and self._alpaca:
                 best_sym, best_sig = sell_candidates[0]
@@ -272,54 +299,46 @@ class TradingWorker(BaseWorker):
 
         best_sym, best_sig = buy_candidates[0]
 
-        # Claude sentiment filter (secondary only - blocks on negative+high risk)
+        # Claude sentiment filter (secondary only)
         sentiment_ok = True
         claude_cost = 0.0
         try:
-            summary = (
-                f"Symbol: {best_sym}\n"
-                f"Price: {market_data[best_sym]['close']:.2f}\n"
-                f"Change: {market_data[best_sym]['change_pct']}%\n"
-                f"MA signal: {best_sig['reason']}"
-            )
+            summary = (f"Symbol: {best_sym}\nPrice: {market_data[best_sym]['close']:.2f}\n"
+                       f"Change: {market_data[best_sym]['change_pct']}%\nMA signal: {best_sig['reason']}")
             sent_text, claude_cost = self.call_claude(
-                system=SENTIMENT_SYSTEM,
-                user=summary,
-                model=self.config.claude_haiku_model,
-                max_tokens=100,
+                system=SENTIMENT_SYSTEM, user=summary,
+                model=self.config.claude_haiku_model, max_tokens=100,
             )
             import re as _re
             m = _re.search(r'\{.*\}', sent_text, _re.DOTALL)
             sentiment = json.loads(m.group(0) if m else sent_text.strip())
             if sentiment.get("sentiment") == "negative" and sentiment.get("risk_level") == "high":
                 sentiment_ok = False
-                logger.info(f"Claude sentiment blocked trade: {sentiment}")
+                logger.info(f"Sentiment blocked: {sentiment}")
         except Exception as e:
-            logger.warning(f"Claude sentiment check skipped (proceeding): {e}")
+            logger.warning(f"Claude sentiment skipped (proceeding): {e}")
 
         if not sentiment_ok:
             return TaskResult(success=True, task_id=task_id, data={
                 "signals": signals, "executed": False,
-                "reason": "Blocked by Claude sentiment filter (negative+high risk)"
+                "reason": "Blocked by Claude sentiment filter"
             }, cost_usd=claude_cost)
 
         # Execute buy (2% of portfolio max per trade)
         notional = portfolio_value * 2.0 / 100
-
         try:
             if self._alpaca:
                 order = await self._alpaca.place_order(best_sym, "buy", notional=notional)
             else:
                 base = self.config.alpaca_base_url
                 order_resp = await self._http.post(
-                    f"{base}/v2/orders",
-                    headers=self._alpaca_headers,
+                    f"{base}/v2/orders", headers=self._alpaca_headers,
                     json={"symbol": best_sym, "notional": round(notional, 2), "side": "buy",
                           "type": "market", "time_in_force": "day"},
                 )
                 order_resp.raise_for_status()
                 order = order_resp.json()
-            logger.info(f"Order executed: buy {best_sym} ${notional:.2f} conf={best_sig['confidence']}")
+            logger.info(f"Executed: buy {best_sym} ${notional:.2f} conf={best_sig['confidence']}")
             return TaskResult(
                 success=True, task_id=task_id,
                 data={"signal": best_sig, "executed": True, "symbol": best_sym,
@@ -353,8 +372,7 @@ class TradingWorker(BaseWorker):
         env = self.config.oanda_environment
         base = "https://api-fxtrade.oanda.com" if env == "live" else "https://api-fxpractice.oanda.com"
         headers = {"Authorization": f"Bearer {self.config.oanda_api_key}", "Content-Type": "application/json"}
-        action = task.get("action", "status")
-        if action == "status":
+        if task.get("action") == "status":
             try:
                 resp = await self._http.get(f"{base}/v3/accounts/{self.config.oanda_account_id}", headers=headers)
                 resp.raise_for_status()
@@ -366,7 +384,7 @@ class TradingWorker(BaseWorker):
                 })
             except httpx.HTTPStatusError as e:
                 return TaskResult(success=False, task_id=task_id, error=f"OANDA HTTP {e.response.status_code}")
-        return TaskResult(success=False, task_id=task_id, error=f"OANDA action not implemented: {action}")
+        return TaskResult(success=False, task_id=task_id, error="OANDA action not implemented")
 
     # ---- Freqtrade ----
 
