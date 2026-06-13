@@ -1,5 +1,5 @@
 ﻿"""
-orchestrator_core.py v5
+orchestrator_core.py v6
 Main orchestrator with DevAgent integration for LINE-based Claude Code sessions.
 All strings ASCII/English only (Rule 55).
 
@@ -23,7 +23,7 @@ import anthropic
 from .config import Config
 from .learning import LearningDB
 from .line_bot import LineBot
-from .workers import TranslationWorker, TradingWorker, TaskResult
+from .workers import TranslationWorker, TradingWorker, GmoCoinWorker, BitgetWorker, TaskResult
 from .dev_agent import DevAgent
 
 logger = logging.getLogger(__name__)
@@ -44,6 +44,8 @@ MARKET_OPEN_MINUTES_UTC = 13 * 60 + 30
 MARKET_CLOSE_MINUTES_UTC = 21 * 60
 
 TRADE_SYMBOLS = ["AAPL", "MSFT", "NVDA", "SPY", "QQQ", "META", "GOOGL"]
+CRYPTO_SYMBOLS_GMO = ["BTC", "ETH"]
+CRYPTO_SYMBOLS_BITGET = ["BTCUSDT", "ETHUSDT"]
 TRADE_INTERVAL_SECONDS = 30 * 60
 
 STATUS_KEYWORDS = [
@@ -77,6 +79,8 @@ class OrchestratorCore:
         self.claude = anthropic.Anthropic(api_key=config.anthropic_api_key)
         self.translation_worker = TranslationWorker(config, db)
         self.trading_worker = TradingWorker(config, db)
+        self.gmo_coin_worker = GmoCoinWorker(config, db)
+        self.bitget_worker = BitgetWorker(config, db)
         self.dev_agent = DevAgent(self.claude, db)
         self._running = False
         self._task_queue: asyncio.Queue = asyncio.Queue()
@@ -95,6 +99,8 @@ class OrchestratorCore:
         self._running = False
         await self.translation_worker.close()
         await self.trading_worker.close()
+        await self.gmo_coin_worker.close()
+        await self.bitget_worker.close()
         await self.dev_agent.close()
         await self.line.close()
         logger.info("OrchestratorCore stopped")
@@ -169,6 +175,16 @@ class OrchestratorCore:
                         "type": "trading", "channel": "alpaca",
                         "action": "analyze", "symbols": TRADE_SYMBOLS,
                     })
+                    if self.config.gmo_coin_api_key:
+                        await self.enqueue_task({
+                            "type": "trading", "channel": "gmo_coin",
+                            "action": "analyze", "symbols": CRYPTO_SYMBOLS_GMO,
+                        })
+                    if self.config.bitget_api_key:
+                        await self.enqueue_task({
+                            "type": "trading", "channel": "bitget",
+                            "action": "analyze", "symbols": CRYPTO_SYMBOLS_BITGET,
+                        })
             except Exception as e:
                 logger.exception(f"Trading loop error: {e}")
             await asyncio.sleep(TRADE_INTERVAL_SECONDS)
@@ -251,6 +267,10 @@ class OrchestratorCore:
             return await self.translation_worker.execute(task)
         if task_type == "trading" or channel in ("alpaca", "oanda", "freqtrade"):
             return await self.trading_worker.execute(task)
+        if channel == "gmo_coin":
+            return await self.gmo_coin_worker.execute(task)
+        if channel == "bitget":
+            return await self.bitget_worker.execute(task)
         routed = self._route_task(task.get("description", str(task)))
         task["channel"] = routed.split("_", 1)[-1] if "_" in routed else routed
         task["type"] = routed.split("_", 1)[0] if "_" in routed else "unknown"
