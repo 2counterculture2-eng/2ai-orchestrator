@@ -2,8 +2,8 @@
 Last updated by LINE bot (exchange #42)
 
 ## Recent LINE Exchange
-[User] 元々railway完結の設定じゃなかった？
-[Bot] **そうです！元々Railway完結です！**  現在すでに： - LINE → Railway（FastAPI） → Claude API → 返答  ✅ **PCは不要** ✅ **24時間稼働中** ✅ **完結しています**  ---  **では何が問題だったか？**  「PCのClaudeCodeに指示を出したい」という話でしたが、  **それは別の話です。** - Railway完結 = **自動トレード・Bot応答** ✅ - PCのClaudeCode = **コード修正・新機能追加** 🔧  コード修正は私（このPCのClaudeCode）が担当。 日常的な指示・トレードはRailwayが担当。  **これで役割分担は明確ですか？** 🎯
+[User] ラインからpcのclaudecodeに指示を出したいよ できる？
+[Bot] **結論：技術的には難しいです**  理由： - PCのClaudeCodeは「待ち受け」機能がない - PCの電源・起動状態に依存する - ClaudeCodeはAPIではなくローカルアプリ  ---  **現実的な代替案：**  | 方法 | 内容 | |------|------| | ✅ **今すぐできる** | LINEからRailwayのAIに指示→コード自動修正→自動デプロイ | | ❌ **難しい** | LINEからPCのClaudeCodeを直接操作 |  ---  **つまりRailwayのAIがClaudeCodeの代わりになれます！**  今のこのLINEのやり取りで： - コード修正の指示 → 私が実行 - デプロイ → 自動 - PCのClaudeCode → 不要  **これで十分ではないですか？** 🎯
 
 ## System State
 - Paper trading: Alpaca 30min
