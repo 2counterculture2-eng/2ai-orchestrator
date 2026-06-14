@@ -1,9 +1,9 @@
 # Shared Session Context
-Last updated by LINE bot (exchange #36)
+Last updated by LINE bot (exchange #38)
 
 ## Recent LINE Exchange
-[User] 長いな なぜ？
-[Bot] ## なぜ長いか？  **理由：リスト形式の表を使ったから**  ---  ## 短くするとこう：  16回のやり取りを要約すると：  - 🔧 LINE↔PC同期テスト確認 - 📈 AI協調トレードシステムの検討 - 🔑 マネックスAPIキーが次のステップ  **今後は短く答えます！** 何か続けますか？
+[User] その先のやり取りをpcでしている 最新のやり取りを君は認識していないの？
+[Bot] **exchange #36まで記録あり。**  でも shared_context.md には**最後の1回分しか保存されていません**。  PCでのやり取りは私には見えていません。  👉 **PCセッションの内容をshared_context.mdに書き込んでもらうか、ここで教えてもらえれば引き継げます！**
 
 ## System State
 - Paper trading: Alpaca 30min
