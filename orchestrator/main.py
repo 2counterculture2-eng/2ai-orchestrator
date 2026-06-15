@@ -511,6 +511,65 @@ async def market_forex(from_currency: str, to_currency: str):
 
 
 
+
+@app.get("/debug/alpaca-auth")
+async def debug_alpaca_auth():
+    """Diagnose Alpaca Cognito auth - tests JWT and tries both APIs."""
+    import asyncio as _aio
+    from .alpaca_client import _sync_cognito_auth, AlpacaInternalClient
+    import httpx as _httpx
+    results = {}
+    
+    if not _config.alpaca_email:
+        return {"error": "ALPACA_EMAIL not set"}
+    
+    # Step 1: Try Cognito auth
+    try:
+        loop = _aio.get_event_loop()
+        jwt = await loop.run_in_executor(
+            None, _sync_cognito_auth,
+            _config.alpaca_email, _config.alpaca_password, _config.alpaca_mfa_secret
+        )
+        results["cognito_auth"] = "OK"
+        results["jwt_prefix"] = jwt[:20] + "..." if jwt else "(empty)"
+        results["jwt_length"] = len(jwt) if jwt else 0
+        
+        # Step 2: Try data API (should work)
+        async with _httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                "https://data.alpaca.markets/v2/stocks/AAPL/bars",
+                headers={"Authorization": f"Bearer {jwt}"},
+                params={"timeframe": "1Day", "limit": "2", "feed": "iex"}
+            )
+            results["data_api_status"] = r.status_code
+        
+        # Step 3: Try internal paper account API
+        async with _httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                f"https://app.alpaca.markets/internal/paper_accounts/{_config.alpaca_paper_account_id}/trade_account",
+                headers={"Authorization": f"Bearer {jwt}"}
+            )
+            results["internal_api_status"] = r.status_code
+            if r.status_code != 200:
+                results["internal_api_body"] = r.text[:300]
+        
+        # Step 4: Try without paper_account_id path - list accounts
+        async with _httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(
+                "https://app.alpaca.markets/internal/paper_accounts",
+                headers={"Authorization": f"Bearer {jwt}"}
+            )
+            results["list_accounts_status"] = r.status_code
+            if r.status_code == 200:
+                data = r.json()
+                results["account_ids"] = [a.get("id") for a in (data if isinstance(data,list) else [data])[:3]]
+                
+    except Exception as e:
+        results["error"] = str(e)[:400]
+    
+    return results
+
+
 async def _handle_line_instruction(instruction: str, reply_token: str, user_id: str):
     """Execute a code instruction from LINE via ClaudeCodeAgent."""
     if not _code_agent or not _config.github_token:
