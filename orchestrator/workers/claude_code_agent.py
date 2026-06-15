@@ -78,21 +78,14 @@ class ClaudeCodeAgent:
 
     async def execute(self, instruction: str) -> str:
         file_shas = {}
-        context = "Current codebase:
-
-"
+        context = "Current codebase:\n\n"
         for path in REPO_FILES:
             sha, content = await self._get_file(path)
             if content:
                 file_shas[path] = sha
-                context += f"=== {path} ===
-{content}
+                context += f"=== {path} ===\n{content}\n\n"
 
-"
-
-        messages = [{"role": "user", "content": f"{context}
-
-指示: {instruction}"}]
+        messages = [{"role": "user", "content": f"{context}\n\n指示: {instruction}"}]
         changes = []
 
         for _ in range(6):
@@ -106,10 +99,7 @@ class ClaudeCodeAgent:
 
             if response.stop_reason == "end_turn":
                 text = " ".join(b.text for b in response.content if hasattr(b, "text"))
-                prefix = "
-".join(changes) + "
-
-" if changes else ""
+                prefix = "\n".join(changes) + "\n\n" if changes else ""
                 return (prefix + text).strip() or "変更なし"
 
             if response.stop_reason == "tool_use":
@@ -137,6 +127,4 @@ class ClaudeCodeAgent:
             else:
                 break
 
-        return ("
-".join(changes) + "
-完了").strip() if changes else "変更なし"
+        return ("\n".join(changes) + "\n完了").strip() if changes else "変更なし"
