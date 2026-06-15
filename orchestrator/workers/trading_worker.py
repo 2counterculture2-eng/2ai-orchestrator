@@ -236,12 +236,14 @@ class TradingWorker(BaseWorker):
                 "buying_power": float(account.get("buying_power", 0)),
                 "status": account.get("status"),
             })
-        except httpx.HTTPStatusError as e:
-            return TaskResult(success=False, task_id=task_id, error=f"Alpaca HTTP {e.response.status_code}")
+        except Exception as e:
+            return TaskResult(success=False, task_id=task_id, error=f"Alpaca account error: {e}")
 
     async def _alpaca_analyze_and_trade(self, task_id: str, task: dict) -> TaskResult:
         symbols = task.get("symbols", ["AAPL", "MSFT", "NVDA"])
 
+        signal_only = False
+        portfolio_value = 100000.0  # paper account default
         try:
             if self._alpaca:
                 account = await self._alpaca.get_account()
@@ -250,9 +252,10 @@ class TradingWorker(BaseWorker):
                 acct_resp = await self._http.get(f"{base}/v2/account", headers=self._alpaca_headers)
                 acct_resp.raise_for_status()
                 account = acct_resp.json()
-            portfolio_value = float(account.get("portfolio_value", 10000))
+            portfolio_value = float(account.get("portfolio_value", 100000))
         except Exception as e:
-            return TaskResult(success=False, task_id=task_id, error=f"Cannot get account: {e}")
+            logger.warning(f"get_account failed ({e}), running in signal-only mode")
+            signal_only = True
 
         import asyncio
         market_data = {}
@@ -340,6 +343,15 @@ class TradingWorker(BaseWorker):
             }, cost_usd=claude_cost)
 
         notional = portfolio_value * 20.0 / 100
+        if signal_only:
+            logger.info(f"SIGNAL-ONLY: would buy {best_sym} ${notional:.2f} RSI2={best_sig.get('rsi2')}")
+            return TaskResult(
+                success=True, task_id=task_id,
+                data={"signal": best_sig, "executed": False, "symbol": best_sym,
+                      "notional": notional, "mode": "signal_only",
+                      "reason": "Alpaca trading API unavailable (401) - signal logged only"},
+                cost_usd=claude_cost,
+            )
         try:
             if self._alpaca:
                 order = await self._alpaca.place_order(best_sym, "buy", notional=notional)
