@@ -575,13 +575,14 @@ async def _handle_line_instruction(instruction: str, reply_token: str, user_id: 
     if not _code_agent or not _config.github_token:
         await _line.reply(reply_token, "エラー: GITHUB_TOKENが未設定")
         return
-    await _line.reply(reply_token, f"実行中...
-指示: {instruction[:100]}")
+    preview = instruction[:100]
+    await _line.reply(reply_token, "実行中...
+指示: " + preview)
     try:
         result = await _code_agent.execute(instruction)
         uid = user_id or (_db.get_config("line_user_id") if _db else None)
-        msg = f"【コード実行完了】
-{result}"
+        msg = "【コード実行完了】
+" + result
         if uid:
             for i in range(0, len(msg), 2000):
                 await _line.send_text(msg[i:i+2000], user_id=uid)
@@ -589,7 +590,7 @@ async def _handle_line_instruction(instruction: str, reply_token: str, user_id: 
         logger.error("ClaudeCodeAgent error: %s", e)
         uid = user_id or (_db.get_config("line_user_id") if _db else None)
         if uid:
-            await _line.send_text(f"エラー: {str(e)[:200]}", user_id=uid)
+            await _line.send_text("エラー: " + str(e)[:200], user_id=uid)
 
 
 if __name__ == "__main__":
