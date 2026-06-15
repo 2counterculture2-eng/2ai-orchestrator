@@ -167,6 +167,14 @@ class TradingWorker(BaseWorker):
                 password=config.alpaca_password,
                 mfa_secret=config.alpaca_mfa_secret,
                 paper_account_id=config.alpaca_paper_account_id,
+                api_key=config.alpaca_api_key,
+                secret_key=config.alpaca_secret_key,
+            )
+        elif config.alpaca_api_key and config.alpaca_secret_key:
+            self._alpaca = AlpacaInternalClient(
+                email="", password="", mfa_secret="", paper_account_id="",
+                api_key=config.alpaca_api_key,
+                secret_key=config.alpaca_secret_key,
             )
         self._alpaca_headers = {
             "APCA-API-KEY-ID": config.alpaca_api_key,
