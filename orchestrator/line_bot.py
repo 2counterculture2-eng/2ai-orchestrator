@@ -97,4 +97,6 @@ class LineBot:
             return "pause", text.split(maxsplit=1)[1] if " " in text else ""
         if text.startswith("resume") or text.startswith("再開"):
             return "resume", text.split(maxsplit=1)[1] if " " in text else ""
+        if text.startswith("指示:") or text.startswith("instruction:"):
+            return "instruction", text.split(":", 1)[1].strip()
         return "unknown", text
