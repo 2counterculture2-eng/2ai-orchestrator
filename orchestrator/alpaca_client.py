@@ -71,17 +71,27 @@ def _sync_cognito_auth(email: str, password: str, mfa_secret: str) -> str:
     return resp["AuthenticationResult"]["IdToken"]
 
 
+DATA_BASE = "https://data.alpaca.markets/v2/stocks"
+PAPER_BASE = "https://paper-api.alpaca.markets/v2"
+
+
 class AlpacaInternalClient:
     """
-    Trades on Alpaca paper account via the internal API with Cognito JWT auth.
-    Thread-safe: a single asyncio lock guards token refresh.
+    Alpaca paper trading client.
+    Supports two auth modes:
+    - Standard API keys (APCA-API-KEY-ID + APCA-API-SECRET-KEY): preferred
+    - Cognito JWT (email/password/TOTP): fallback for data API only
     """
 
-    def __init__(self, email: str, password: str, mfa_secret: str, paper_account_id: str):
+    def __init__(self, email: str, password: str, mfa_secret: str, paper_account_id: str,
+                 api_key: str = "", secret_key: str = ""):
         self.email = email
         self.password = password
         self.mfa_secret = mfa_secret
         self.paper_account_id = paper_account_id
+        self.api_key = api_key
+        self.secret_key = secret_key
+        self._has_keys = bool(api_key and secret_key)
         self._jwt: Optional[str] = None
         self._jwt_expiry: float = 0.0
         self._lock = asyncio.Lock()
@@ -104,10 +114,27 @@ class AlpacaInternalClient:
             self._jwt_expiry = time.time() + TOKEN_TTL
             logger.info("Alpaca JWT refreshed, valid for ~55 min")
 
+    def _api_headers(self) -> dict:
+        """Standard API key auth headers."""
+        return {
+            "APCA-API-KEY-ID": self.api_key,
+            "APCA-API-SECRET-KEY": self.secret_key,
+            "Content-Type": "application/json",
+        }
+
     def _headers(self) -> dict:
+        if self._has_keys:
+            return self._api_headers()
         return {"Authorization": f"Bearer {self._jwt}", "Content-Type": "application/json"}
 
     async def get_account(self) -> dict:
+        if self._has_keys:
+            r = await self._http.get(
+                f"{PAPER_BASE}/account",
+                headers=self._api_headers(),
+            )
+            r.raise_for_status()
+            return r.json()
         await self._ensure_jwt()
         r = await self._http.get(
             f"{INTERNAL_BASE}/paper_accounts/{self.paper_account_id}/trade_account",
@@ -117,16 +144,23 @@ class AlpacaInternalClient:
         return r.json()
 
     async def get_orders(self, status: str = "open") -> list:
+        if self._has_keys:
+            r = await self._http.get(f"{PAPER_BASE}/orders", headers=self._api_headers(), params={"status": status})
+            r.raise_for_status()
+            return r.json()
         await self._ensure_jwt()
         r = await self._http.get(
             f"{INTERNAL_BASE}/paper_accounts/{self.paper_account_id}/orders",
-            headers=self._headers(),
-            params={"status": status},
+            headers=self._headers(), params={"status": status},
         )
         r.raise_for_status()
         return r.json()
 
     async def get_positions(self) -> list:
+        if self._has_keys:
+            r = await self._http.get(f"{PAPER_BASE}/positions", headers=self._api_headers())
+            r.raise_for_status()
+            return r.json()
         await self._ensure_jwt()
         r = await self._http.get(
             f"{INTERNAL_BASE}/paper_accounts/{self.paper_account_id}/positions",
@@ -144,7 +178,6 @@ class AlpacaInternalClient:
         order_type: str = "market",
         time_in_force: str = "day",
     ) -> dict:
-        await self._ensure_jwt()
         body: dict = {
             "symbol": symbol,
             "side": side,
@@ -155,15 +188,22 @@ class AlpacaInternalClient:
             body["qty"] = qty
         elif notional is not None:
             body["notional"] = round(notional, 2)
+        if self._has_keys:
+            r = await self._http.post(f"{PAPER_BASE}/orders", headers=self._api_headers(), json=body)
+            r.raise_for_status()
+            return r.json()
+        await self._ensure_jwt()
         r = await self._http.post(
             f"{INTERNAL_BASE}/paper_accounts/{self.paper_account_id}/orders",
-            headers=self._headers(),
-            json=body,
+            headers=self._headers(), json=body,
         )
         r.raise_for_status()
         return r.json()
 
     async def cancel_order(self, order_id: str) -> bool:
+        if self._has_keys:
+            r = await self._http.delete(f"{PAPER_BASE}/orders/{order_id}", headers=self._api_headers())
+            return r.status_code in (200, 204)
         await self._ensure_jwt()
         r = await self._http.delete(
             f"{INTERNAL_BASE}/paper_accounts/{self.paper_account_id}/orders/{order_id}",
@@ -179,15 +219,34 @@ class AlpacaInternalClient:
                 cancelled += 1
         return cancelled
 
-    async def get_bars(self, symbol: str, limit: int = 100) -> Optional[list]:
-        """Fetch daily bars from Alpaca data API using the internal JWT.
-        Tries data.alpaca.markets first, then falls back to internal endpoint."""
-        await self._ensure_jwt()
+    async def get_bars(self, symbol: str, limit: int = 150) -> Optional[list]:
+        """Fetch daily bars. Standard API keys preferred; falls back to Cognito JWT."""
         from datetime import datetime, timezone, timedelta
         end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        start = (datetime.now(timezone.utc) - timedelta(days=200)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        start = (datetime.now(timezone.utc) - timedelta(days=250)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        params = {"timeframe": "1Day", "start": start, "end": end,
+                  "limit": limit, "adjustment": "raw", "feed": "iex"}
 
-        # Try public data API with Bearer JWT
+        # Preferred: standard API key headers
+        if self._has_keys:
+            try:
+                r = await self._http.get(
+                    f"{DATA_BASE}/{symbol}/bars",
+                    headers=self._api_headers(),
+                    params=params,
+                )
+                if r.status_code == 200:
+                    bars = r.json().get("bars", [])
+                    if bars:
+                        logger.info(f"get_bars({symbol}): {len(bars)} bars via API key")
+                        return bars
+                else:
+                    logger.warning(f"get_bars({symbol}) API key failed: {r.status_code}")
+            except Exception as e:
+                logger.warning(f"get_bars({symbol}) API key error: {e}")
+
+        # Fallback: Cognito JWT
+        await self._ensure_jwt()
         for base_url in [
             "https://data.alpaca.markets/v2/stocks",
             "https://app.alpaca.markets/internal/data/v2/stocks",
@@ -195,14 +254,13 @@ class AlpacaInternalClient:
             try:
                 r = await self._http.get(
                     f"{base_url}/{symbol}/bars",
-                    headers=self._headers(),
-                    params={"timeframe": "1Day", "start": start, "end": end,
-                            "limit": limit, "adjustment": "raw", "feed": "iex"},
+                    headers={"Authorization": f"Bearer {self._jwt}", "Content-Type": "application/json"},
+                    params=params,
                 )
                 if r.status_code == 200:
-                    data = r.json()
-                    bars = data.get("bars", [])
+                    bars = r.json().get("bars", [])
                     if bars:
+                        logger.info(f"get_bars({symbol}): {len(bars)} bars via JWT from {base_url}")
                         return bars
             except Exception:
                 pass
