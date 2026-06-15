@@ -20,6 +20,9 @@ class Config:
     line_channel_secret: str = ""
     line_user_id: str = ""
 
+    # GitHub (for ClaudeCodeAgent)
+    github_token: str = ""
+
     # Trading APIs - Alpaca
     alpaca_email: str = ""
     alpaca_password: str = ""
@@ -72,6 +75,7 @@ class Config:
             line_channel_access_token=os.getenv("LINE_CHANNEL_ACCESS_TOKEN", ""),
             line_channel_secret=os.getenv("LINE_CHANNEL_SECRET", ""),
             line_user_id=os.getenv("LINE_USER_ID", ""),
+            github_token=os.getenv("GITHUB_TOKEN", ""),
             alpaca_email=os.getenv("ALPACA_EMAIL", ""),
             alpaca_password=os.getenv("ALPACA_PASSWORD", ""),
             alpaca_mfa_secret=os.getenv("ALPACA_MFA_SECRET", ""),
