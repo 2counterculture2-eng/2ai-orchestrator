@@ -24,6 +24,7 @@ from .learning import LearningDB
 from .line_bot import LineBot
 from .orchestrator_core import OrchestratorCore
 from .market_data import MarketDataClient
+from .workers.claude_code_agent import ClaudeCodeAgent
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -37,6 +38,7 @@ _db: LearningDB = None
 _line: LineBot = None
 _orchestrator: OrchestratorCore = None
 _market: MarketDataClient = None
+_code_agent: ClaudeCodeAgent = None
 
 
 RAILWAY_TOKEN = os.getenv("RAILWAY_TOKEN", "")
@@ -78,6 +80,7 @@ async def lifespan(app: FastAPI):
     _line = LineBot(_config)
     _orchestrator = OrchestratorCore(_config, _db, _line)
     _market = MarketDataClient(_config.alpha_vantage_api_key)
+    _code_agent = ClaudeCodeAgent(_config.anthropic_api_key, _config.github_token)
     await _orchestrator.start()
     logger.info("2AI Orchestrator v3 started")
     yield
@@ -144,9 +147,10 @@ async def line_webhook(
             text = event["message"]["text"]
             reply_token = event.get("replyToken", "")
             command, args = _line.parse_command(text)
-            background_tasks.add_task(
-                _orchestrator.handle_line_command, command, args, reply_token
-            )
+            if command == "instruction":
+                background_tasks.add_task(_handle_line_instruction, args, reply_token, user_id)
+            else:
+                background_tasks.add_task(_orchestrator.handle_line_command, command, args, reply_token)
 
     return JSONResponse(content={"status": "ok"})
 
@@ -504,6 +508,29 @@ async def market_forex(from_currency: str, to_currency: str):
     if not rate:
         raise HTTPException(status_code=404, detail="Forex rate not found")
     return rate
+
+
+
+async def _handle_line_instruction(instruction: str, reply_token: str, user_id: str):
+    """Execute a code instruction from LINE via ClaudeCodeAgent."""
+    if not _code_agent or not _config.github_token:
+        await _line.reply(reply_token, "エラー: GITHUB_TOKENが未設定")
+        return
+    await _line.reply(reply_token, f"実行中...
+指示: {instruction[:100]}")
+    try:
+        result = await _code_agent.execute(instruction)
+        uid = user_id or (_db.get_config("line_user_id") if _db else None)
+        msg = f"【コード実行完了】
+{result}"
+        if uid:
+            for i in range(0, len(msg), 2000):
+                await _line.send_text(msg[i:i+2000], user_id=uid)
+    except Exception as e:
+        logger.error("ClaudeCodeAgent error: %s", e)
+        uid = user_id or (_db.get_config("line_user_id") if _db else None)
+        if uid:
+            await _line.send_text(f"エラー: {str(e)[:200]}", user_id=uid)
 
 
 if __name__ == "__main__":
