@@ -596,6 +596,40 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run("orchestrator.main:app", host="0.0.0.0", port=port, reload=False)
 
+@app.get("/debug/alpaca-auth")
+async def debug_alpaca_auth():
+    """Test Alpaca JWT on multiple endpoints to find working trading API."""
+    if not _alpaca:
+        return {"error": "alpaca client not initialized"}
+    try:
+        await _alpaca._ensure_jwt()
+        jwt = _alpaca._jwt
+        headers = {"Authorization": f"Bearer {jwt}", "User-Agent": "Mozilla/5.0"}
+        results = {}
+        async with httpx.AsyncClient(timeout=15) as client:
+            # Test 1: standard paper API with JWT Bearer
+            try:
+                r = await client.get("https://paper-api.alpaca.markets/v2/account", headers=headers)
+                results["paper_api_v2_account"] = {"status": r.status_code, "body": r.text[:200]}
+            except Exception as e:
+                results["paper_api_v2_account"] = {"error": str(e)}
+            # Test 2: internal user endpoint (may return API keys)
+            try:
+                r = await client.get("https://app.alpaca.markets/internal/user", headers=headers)
+                results["internal_user"] = {"status": r.status_code, "body": r.text[:300]}
+            except Exception as e:
+                results["internal_user"] = {"error": str(e)}
+            # Test 3: internal accounts list
+            try:
+                r = await client.get("https://app.alpaca.markets/internal/accounts", headers=headers)
+                results["internal_accounts"] = {"status": r.status_code, "body": r.text[:300]}
+            except Exception as e:
+                results["internal_accounts"] = {"error": str(e)}
+        return {"jwt_prefix": jwt[:30] + "...", "results": results}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/debug/webhook-test")
 async def debug_webhook_test(background_tasks: BackgroundTasks):
     """Simulate a LINE message to test dev_agent v3 (no signature required)."""
