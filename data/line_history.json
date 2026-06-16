@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "role": "user",
+    "content": "テスト\n今はpc起動しているけど\npcオフ状態でも\nラインからpcのcodeに指示できる？"
+  },
+  {
+    "role": "assistant",
+    "content": "はい、**できます！** ✅\n\n## PCオフ状態でもLINEから指示可能です\n\n仕組みはこうです：\n\n```\nTakuma (LINE) \n    ↓\nLINE Bot (@317fpwfv)\n    ↓\nRailway AI (24/7稼働中) ← ここが重要\n    ↓\nGitHub コード編集\n    ↓\nRailway 自動デプロイ\n```\n\n**Railwayの上でこのAIが24時間稼働しているので、TakumaのPCは一切関係ありません。**\n\n## 使い方\n\n| メッセージ形式 | 動作 |\n|---|---|\n| 普通のテキスト | 会話・質問に回答 |\n| `instruction: ...` | コード編集→GitHub→デプロイ自動実行 |\n\n## 例えば\n\n- PCオフの深夜2時に「`instruction: トレード戦略をRSI3に変更して`」と送信\n- → このRailway AIが即座に受信\n- → GitHubのコードを編集\n- → Railwayに自動デプロイ\n- → 完了通知をLINEに返信\n\n**PCのClaude Codeは不要です。このRailway AIがそれと同等の役割を担っています。** 🤖\n\n今PCが起動中でも、オフでも、動作は全く同じです！"
+  }
+]
