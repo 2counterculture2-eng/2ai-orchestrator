@@ -241,7 +241,14 @@ class DevAgent:
             return "PCセッションの記録がまだありません。PC側のClaude Codeが稼働していれば自動記録されます。"
         lines = [f"📋 直近{len(turns)}ターン（PCセッション）\n"]
         for i, t in enumerate(turns, 1):
-            ts = t.get("timestamp", "")[:16].replace("T", " ")
+            raw_ts = t.get("timestamp", "")
+            try:
+                from datetime import datetime, timezone, timedelta
+                jst = timezone(timedelta(hours=9))
+                dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
+                ts = dt.astimezone(jst).strftime("%m/%d %H:%M JST")
+            except Exception:
+                ts = raw_ts[:16].replace("T", " ")
             user_text = t.get("user", "")[:200]
             ai_text = t.get("ai", "")[:300]
             lines.append(f"【{i}】{ts} UTC")
