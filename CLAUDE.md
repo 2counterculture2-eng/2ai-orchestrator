@@ -90,6 +90,12 @@ curl -s -X POST "https://orchestrator-production-61d8.up.railway.app/api/pc-turn
 注意：user_msgとai_responseを実際の内容に置き換えてJSON安全な文字列（改行→\n、ダブルクォート→\\"）にする。
 Bashのrun_in_background=trueで非同期実行して返答速度に影響させない。
 
+**実際にはpy（Windows）経由でPOSTする（日本語文字化け防止・動作確認済み）：**
+```bash
+py -c "import urllib.request, json; data={'user_msg':'<USER_MSG>', 'ai_response':'<AI_RESPONSE>'}; req=urllib.request.Request('https://orchestrator-production-61d8.up.railway.app/api/pc-turn', json.dumps(data, ensure_ascii=False).encode('utf-8'), {'Content-Type':'application/json; charset=utf-8'}); urllib.request.urlopen(req, timeout=5)" &
+```
+注意: `py` コマンド（Windows Python launcher）を使う。`python3`はWindows環境で動作しない（exit 49）。
+
 ---
 
 ## 主要ファイル
