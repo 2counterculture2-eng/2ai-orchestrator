@@ -74,13 +74,17 @@ async def persist_line_user_id(user_id: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _config, _db, _line, _orchestrator, _market
+    global _config, _db, _line, _orchestrator, _market, _code_agent
     _config = Config.from_env()
     _db = LearningDB(_config.db_path)
     _line = LineBot(_config)
     _orchestrator = OrchestratorCore(_config, _db, _line)
     _market = MarketDataClient(_config.alpha_vantage_api_key)
     _code_agent = ClaudeCodeAgent(_config.anthropic_api_key, _config.github_token)
+    # Restore line_user_id from env var if DB is empty (survives redeploys)
+    if _config.line_user_id and not _db.get_config("line_user_id"):
+        _db.set_config("line_user_id", _config.line_user_id)
+        logger.info(f"Restored LINE_USER_ID from env: {_config.line_user_id[:10]}...")
     await _orchestrator.start()
     logger.info("2AI Orchestrator v3 started")
     yield
@@ -141,8 +145,8 @@ async def line_webhook(
 
         elif event_type == "message" and event["message"]["type"] == "text":
             user_id = event.get("source", {}).get("userId", "")
-            if user_id and not _db.get_config("line_user_id"):
-                logger.info(f"Captured LINE user_id from message: {user_id}")
+            if user_id and _db.get_config("line_user_id") != user_id:
+                logger.info(f"Updating LINE user_id: {user_id[:10]}...")
                 background_tasks.add_task(persist_line_user_id, user_id)
             text = event["message"]["text"]
             reply_token = event.get("replyToken", "")
