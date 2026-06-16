@@ -1,12 +1,17 @@
 # Shared Session Context
-Last updated by LINE bot (exchange #42)
+System status: LINE -> Railway AI pipeline COMPLETE AND WORKING.
 
-## Recent LINE Exchange
-[User] テスト 今はpc起動しているけど pcオフ状態でも ラインからpcのcodeに指示できる？
-[Bot] **できません。**  PCがオフ = ClaudeCodeは完全に停止。  ---  **でも不要です：**  PCオフでも： - LINE → Railway AI → コード修正・デプロイ  **全部できます** ✅  試しに今コード修正を指示してみてください 🚀
+## Capabilities
+- Takuma can send instructions via LINE even when PC is completely OFF
+- This Railway AI receives messages 24/7, edits GitHub code, deploys automatically
+- Free text -> DevAgent conversation
+- 'instruction: ...' -> ClaudeCodeAgent edits code and deploys
 
-## System State
-- Paper trading: Alpaca 30min
-- Translation channels: pending API keys
-- LINE bot: @317fpwfv
-- Railway: https://orchestrator-production-61d8.up.railway.app
+## Active Systems
+- Alpaca paper trading: ACTIVE (RSI2+MA50, 30-min intervals, US market hours)
+- LINE bot: @317fpwfv ACTIVE
+- Railway: https://orchestrator-production-61d8.up.railway.app ACTIVE
+
+## Pending (require Takuma KYC/setup)
+- GMO Coin API key (after KYC)
+- Translation channels (API keys)
