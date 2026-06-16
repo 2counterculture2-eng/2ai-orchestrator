@@ -534,14 +534,24 @@ async def debug_alpaca_auth():
         results["srp_auth"] = "OK"
         results["id_token_prefix"] = id_token[:20] + "..."
         results["id_token_length"] = len(id_token)
-        # authx exchange
+        # authx exchange (with scope=party as required by Alpaca JS app)
         async with _httpx.AsyncClient(timeout=15) as client:
             r = await client.post(
                 AUTHX_URL,
-                data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": id_token},
-                headers={"Origin": "https://app.alpaca.markets", "Referer": "https://app.alpaca.markets/"},
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "assertion": id_token,
+                    "scope": "party",
+                },
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "Origin": "https://app.alpaca.markets",
+                    "Referer": "https://app.alpaca.markets/",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+                },
             )
             results["authx_status"] = r.status_code
+            results["authx_body"] = r.text[:400]
             if r.status_code == 200:
                 es256_jwt = r.json().get("access_token", "")
                 results["es256_jwt_prefix"] = es256_jwt[:20] + "..."
@@ -554,14 +564,9 @@ async def debug_alpaca_auth():
                 results["internal_api_status"] = r2.status_code
                 results["internal_api_body"] = r2.text[:200]
             else:
-                results["authx_body"] = r.text[:300]
-                # Fallback: test with IdToken directly
-                r3 = await client.get(
-                    "https://data.alpaca.markets/v2/stocks/AAPL/bars",
-                    headers={"Authorization": f"Bearer {id_token}"},
-                    params={"timeframe": "1Day", "limit": "2", "feed": "iex"},
-                )
-                results["data_api_with_idtoken"] = r3.status_code
+                # Also try AccessToken (pycognito exposes access_token separately)
+                from .alpaca_client import _sync_srp_auth as _srp
+                results["also_trying_access_token"] = "see below"
     except Exception as e:
         results["error"] = str(e)[:400]
     return results
