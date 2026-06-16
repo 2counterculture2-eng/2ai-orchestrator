@@ -235,8 +235,17 @@ class DevAgent:
         return "Deploy error: " + r.text[:200]
 
     async def _get_pc_turns(self, limit: int = 3) -> str:
-        if not self.db: return "DB not available"
-        turns = self.db.get_pc_turns(min(limit, 5))
+        import base64 as _b64, json as _json
+        gh = {"Authorization": "token " + GITHUB_TOKEN, "Accept": "application/vnd.github.v3+json"}
+        try:
+            r = await self._http.get(GITHUB_API + "/repos/" + GITHUB_REPO + "/contents/data/pc_turns.json", headers=gh)
+            if r.status_code == 200:
+                turns = _json.loads(_b64.b64decode(r.json()["content"]).decode("utf-8"))
+                turns = turns[-(min(limit, 5)):]
+            else:
+                turns = []
+        except Exception as e:
+            return "pc_turns読み込みエラー: " + str(e)
         if not turns:
             return "PCセッションの記録がまだありません。PC側のClaude Codeが稼働していれば自動記録されます。"
         lines = [f"📋 直近{len(turns)}ターン（PCセッション）\n"]

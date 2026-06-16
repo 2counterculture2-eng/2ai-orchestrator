@@ -177,27 +177,62 @@ async def debug_line_user_id():
     return {"line_user_id": uid or None}
 
 
+PC_TURNS_PATH = "data/pc_turns.json"
+GITHUB_TOKEN_VAL = os.getenv("GITHUB_TOKEN", "")
+GITHUB_REPO_VAL = "2counterculture2-eng/2ai-orchestrator"
+GITHUB_API_BASE = "https://api.github.com"
+
+
+async def _github_read_pc_turns() -> tuple[list, str]:
+    """Read pc_turns.json from GitHub. Returns (turns_list, sha)."""
+    gh = {"Authorization": "token " + GITHUB_TOKEN_VAL, "Accept": "application/vnd.github.v3+json"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(GITHUB_API_BASE + "/repos/" + GITHUB_REPO_VAL + "/contents/" + PC_TURNS_PATH, headers=gh)
+        if r.status_code == 200:
+            import base64 as _b64
+            data = r.json()
+            turns = __import__("json").loads(_b64.b64decode(data["content"]).decode("utf-8"))
+            return turns, data["sha"]
+    except Exception:
+        pass
+    return [], ""
+
+
+async def _github_write_pc_turns(turns: list, sha: str) -> None:
+    """Write pc_turns.json to GitHub."""
+    import base64 as _b64, json as _json
+    gh = {"Authorization": "token " + GITHUB_TOKEN_VAL, "Accept": "application/vnd.github.v3+json"}
+    content = _b64.b64encode(_json.dumps(turns, ensure_ascii=False, indent=2).encode("utf-8")).decode("utf-8")
+    payload = {"message": "chore: update pc_turns", "content": content, "branch": "master"}
+    if sha:
+        payload["sha"] = sha
+    async with httpx.AsyncClient(timeout=15) as client:
+        await client.put(GITHUB_API_BASE + "/repos/" + GITHUB_REPO_VAL + "/contents/" + PC_TURNS_PATH, headers=gh, json=payload)
+
+
 @app.post("/api/pc-turn")
 async def save_pc_turn(request: Request):
-    """Save a PC session turn for LINE access. Called by Claude Code mandatory action."""
-    if not _db:
-        raise HTTPException(status_code=503, detail="Not initialized")
+    """Save a PC session turn to GitHub for LINE access (persists across redeploys)."""
     body = await request.json()
     user_msg = body.get("user_msg", "")[:500]
     ai_response = body.get("ai_response", "")[:800]
     if not user_msg and not ai_response:
         raise HTTPException(status_code=400, detail="user_msg or ai_response required")
-    _db.save_pc_turn(user_msg, ai_response)
+    from datetime import datetime, timezone
+    turns, sha = await _github_read_pc_turns()
+    turns.append({"user": user_msg, "ai": ai_response, "timestamp": datetime.now(timezone.utc).isoformat()})
+    turns = turns[-10:]  # keep last 10
+    await _github_write_pc_turns(turns, sha)
     return {"status": "saved"}
 
 
 @app.get("/api/pc-turns")
 async def get_pc_turns(limit: int = 3):
-    """Return last N PC session turns. Used by DevAgent for LINE queries."""
-    if not _db:
-        raise HTTPException(status_code=503, detail="Not initialized")
-    turns = _db.get_pc_turns(min(limit, 10))
-    return {"turns": turns, "count": len(turns)}
+    """Return last N PC session turns from GitHub. Used by DevAgent for LINE queries."""
+    turns, _ = await _github_read_pc_turns()
+    result = turns[-(min(limit, 10)):]
+    return {"turns": result, "count": len(result)}
 
 
 @app.get("/debug/send-test")
