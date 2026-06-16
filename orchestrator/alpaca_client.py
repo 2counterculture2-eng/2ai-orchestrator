@@ -111,7 +111,7 @@ class AlpacaInternalClient:
                     data={
                         "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
                         "assertion": id_token,
-                        "client_id": COGNITO_CLIENT_ID,
+                        "scope": "party",
                     },
                     headers={
                         "Origin": "https://app.alpaca.markets",
