@@ -276,6 +276,38 @@ class LearningDB:
 
     # ---- Summary for LINE reports ----
 
+    # ---- PC session turns (for LINE access) ----
+
+    def save_pc_turn(self, user_msg: str, ai_response: str) -> None:
+        """Save a PC session turn. Keeps only the last 10 turns."""
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO system_events (event_type, payload, created_at) VALUES (?,?,?)",
+                ("pc_turn", json.dumps({"user": user_msg[:500], "ai": ai_response[:800]}), self._now()),
+            )
+            # Prune old pc_turn events, keep last 10
+            c.execute("""
+                DELETE FROM system_events WHERE event_type='pc_turn'
+                AND id NOT IN (
+                    SELECT id FROM system_events WHERE event_type='pc_turn'
+                    ORDER BY created_at DESC LIMIT 10
+                )
+            """)
+
+    def get_pc_turns(self, limit: int = 3) -> list[dict]:
+        """Return the last N PC session turns."""
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT payload, created_at FROM system_events WHERE event_type='pc_turn' ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        result = []
+        for r in reversed(rows):
+            d = json.loads(r["payload"])
+            d["timestamp"] = r["created_at"]
+            result.append(d)
+        return result
+
     def build_weekly_summary(self) -> dict:
         week_start = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         with self._conn() as c:

@@ -177,6 +177,29 @@ async def debug_line_user_id():
     return {"line_user_id": uid or None}
 
 
+@app.post("/api/pc-turn")
+async def save_pc_turn(request: Request):
+    """Save a PC session turn for LINE access. Called by Claude Code mandatory action."""
+    if not _db:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    body = await request.json()
+    user_msg = body.get("user_msg", "")[:500]
+    ai_response = body.get("ai_response", "")[:800]
+    if not user_msg and not ai_response:
+        raise HTTPException(status_code=400, detail="user_msg or ai_response required")
+    _db.save_pc_turn(user_msg, ai_response)
+    return {"status": "saved"}
+
+
+@app.get("/api/pc-turns")
+async def get_pc_turns(limit: int = 3):
+    """Return last N PC session turns. Used by DevAgent for LINE queries."""
+    if not _db:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    turns = _db.get_pc_turns(min(limit, 10))
+    return {"turns": turns, "count": len(turns)}
+
+
 @app.get("/debug/send-test")
 async def debug_send_test():
     if not _line or not _config or not _orchestrator:

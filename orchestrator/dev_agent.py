@@ -37,6 +37,12 @@ PROJECT_CONTEXT = (
     "\n"
     "Active systems: Alpaca paper trading (RSI2+MA50, 30-min, market hours).\n"
     "Pending: GMO Coin API key (KYC by Takuma), Alpaca SRP auth, translation API keys.\n"
+    "\n"
+    "=== PC SESSION HISTORY ===\n"
+    "When Takuma asks about 'recent PC session', 'direct recent exchanges', 'what was discussed', or '直近3ターン':\n"
+    "-> Use get_pc_turns tool. It returns the last N turns of the Claude Code session on Takuma's PC.\n"
+    "-> This is populated automatically by Claude Code mandatory actions each turn.\n"
+    "-> If empty: PC has not been running or no turns saved yet.\n"
     "=== END CONTEXT ==="
 )
 
@@ -60,7 +66,8 @@ TOOLS = [
     {"name":"list_files","description":"List files in GitHub dir","input_schema":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}},
     {"name":"write_file","description":"Write/update file in GitHub. ASCII/English only.","input_schema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"},"commit_message":{"type":"string"}},"required":["path","content","commit_message"]}},
     {"name":"deploy","description":"Trigger Railway deployment","input_schema":{"type":"object","properties":{"reason":{"type":"string"}},"required":["reason"]}},
-    {"name":"system_status","description":"Get system status","input_schema":{"type":"object","properties":{},"required":[]}}
+    {"name":"system_status","description":"Get system status","input_schema":{"type":"object","properties":{},"required":[]}},
+    {"name":"get_pc_turns","description":"Get last N turns from PC Claude Code session (what Takuma and Claude discussed). Use when user asks about recent PC session, recent conversation, recent work, or 'what was discussed'.","input_schema":{"type":"object","properties":{"limit":{"type":"integer","description":"Number of turns to return (1-5, default 3)"}},"required":[]}}
 ]
 
 
@@ -190,6 +197,7 @@ class DevAgent:
             if name == "write_file":   return await self._write_file(inputs["path"],inputs["content"],inputs["commit_message"])
             if name == "deploy":       return await self._deploy(inputs["reason"])
             if name == "system_status": return self._system_status()
+            if name == "get_pc_turns":  return await self._get_pc_turns(inputs.get("limit", 3))
             return "Unknown tool: " + name
         except Exception as e:
             return "Tool error (" + name + "): " + str(e)
@@ -225,6 +233,19 @@ class DevAgent:
             json={"query":query})
         if r.status_code == 200 and "errors" not in r.json(): return "Deploy triggered: " + reason + ". ~3 min."
         return "Deploy error: " + r.text[:200]
+
+    async def _get_pc_turns(self, limit: int = 3) -> str:
+        if not self.db: return "DB not available"
+        turns = self.db.get_pc_turns(min(limit, 5))
+        if not turns:
+            return "No PC session turns recorded yet. Claude Code on PC must be running for this to populate."
+        lines = []
+        for i, t in enumerate(turns, 1):
+            ts = t.get("timestamp", "")[:16].replace("T", " ")
+            lines.append(f"--- Turn {i} [{ts} UTC] ---")
+            lines.append("[User] " + t.get("user", "")[:300])
+            lines.append("[AI] " + t.get("ai", "")[:600])
+        return "\n".join(lines)
 
     def _system_status(self) -> str:
         if not self.db: return "DB not available"
