@@ -518,59 +518,52 @@ async def market_forex(from_currency: str, to_currency: str):
 
 @app.get("/debug/alpaca-auth")
 async def debug_alpaca_auth():
-    """Diagnose Alpaca Cognito auth - tests JWT and tries both APIs."""
+    """Diagnose Alpaca SRP auth + authx ES256 JWT exchange + API access."""
     import asyncio as _aio
-    from .alpaca_client import _sync_cognito_auth, AlpacaInternalClient
+    from .alpaca_client import _sync_srp_auth, AUTHX_URL
     import httpx as _httpx
     results = {}
-    
     if not _config.alpaca_email:
         return {"error": "ALPACA_EMAIL not set"}
-    
-    # Step 1: Try Cognito auth
     try:
         loop = _aio.get_event_loop()
-        jwt = await loop.run_in_executor(
-            None, _sync_cognito_auth,
+        id_token = await loop.run_in_executor(
+            None, _sync_srp_auth,
             _config.alpaca_email, _config.alpaca_password, _config.alpaca_mfa_secret
         )
-        results["cognito_auth"] = "OK"
-        results["jwt_prefix"] = jwt[:20] + "..." if jwt else "(empty)"
-        results["jwt_length"] = len(jwt) if jwt else 0
-        
-        # Step 2: Try data API (should work)
-        async with _httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                "https://data.alpaca.markets/v2/stocks/AAPL/bars",
-                headers={"Authorization": f"Bearer {jwt}"},
-                params={"timeframe": "1Day", "limit": "2", "feed": "iex"}
+        results["srp_auth"] = "OK"
+        results["id_token_prefix"] = id_token[:20] + "..."
+        results["id_token_length"] = len(id_token)
+        # authx exchange
+        async with _httpx.AsyncClient(timeout=15) as client:
+            r = await client.post(
+                AUTHX_URL,
+                data={"grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer", "assertion": id_token},
+                headers={"Origin": "https://app.alpaca.markets", "Referer": "https://app.alpaca.markets/"},
             )
-            results["data_api_status"] = r.status_code
-        
-        # Step 3: Try internal paper account API
-        async with _httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                f"https://app.alpaca.markets/internal/paper_accounts/{_config.alpaca_paper_account_id}/trade_account",
-                headers={"Authorization": f"Bearer {jwt}"}
-            )
-            results["internal_api_status"] = r.status_code
-            if r.status_code != 200:
-                results["internal_api_body"] = r.text[:300]
-        
-        # Step 4: Try without paper_account_id path - list accounts
-        async with _httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(
-                "https://app.alpaca.markets/internal/paper_accounts",
-                headers={"Authorization": f"Bearer {jwt}"}
-            )
-            results["list_accounts_status"] = r.status_code
+            results["authx_status"] = r.status_code
             if r.status_code == 200:
-                data = r.json()
-                results["account_ids"] = [a.get("id") for a in (data if isinstance(data,list) else [data])[:3]]
-                
+                es256_jwt = r.json().get("access_token", "")
+                results["es256_jwt_prefix"] = es256_jwt[:20] + "..."
+                results["es256_jwt_length"] = len(es256_jwt)
+                # Test internal API with ES256 JWT
+                r2 = await client.get(
+                    f"https://app.alpaca.markets/internal/paper_accounts/{_config.alpaca_paper_account_id}/trade_account",
+                    headers={"Authorization": f"Bearer {es256_jwt}"},
+                )
+                results["internal_api_status"] = r2.status_code
+                results["internal_api_body"] = r2.text[:200]
+            else:
+                results["authx_body"] = r.text[:300]
+                # Fallback: test with IdToken directly
+                r3 = await client.get(
+                    "https://data.alpaca.markets/v2/stocks/AAPL/bars",
+                    headers={"Authorization": f"Bearer {id_token}"},
+                    params={"timeframe": "1Day", "limit": "2", "feed": "iex"},
+                )
+                results["data_api_with_idtoken"] = r3.status_code
     except Exception as e:
         results["error"] = str(e)[:400]
-    
     return results
 
 
@@ -600,38 +593,6 @@ if __name__ == "__main__":
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run("orchestrator.main:app", host="0.0.0.0", port=port, reload=False)
 
-@app.get("/debug/alpaca-auth")
-async def debug_alpaca_auth():
-    """Test Alpaca JWT on multiple endpoints to find working trading API."""
-    if not _alpaca:
-        return {"error": "alpaca client not initialized"}
-    try:
-        await _alpaca._ensure_jwt()
-        jwt = _alpaca._jwt
-        headers = {"Authorization": f"Bearer {jwt}", "User-Agent": "Mozilla/5.0"}
-        results = {}
-        async with httpx.AsyncClient(timeout=15) as client:
-            # Test 1: standard paper API with JWT Bearer
-            try:
-                r = await client.get("https://paper-api.alpaca.markets/v2/account", headers=headers)
-                results["paper_api_v2_account"] = {"status": r.status_code, "body": r.text[:200]}
-            except Exception as e:
-                results["paper_api_v2_account"] = {"error": str(e)}
-            # Test 2: internal user endpoint (may return API keys)
-            try:
-                r = await client.get("https://app.alpaca.markets/internal/user", headers=headers)
-                results["internal_user"] = {"status": r.status_code, "body": r.text[:300]}
-            except Exception as e:
-                results["internal_user"] = {"error": str(e)}
-            # Test 3: internal accounts list
-            try:
-                r = await client.get("https://app.alpaca.markets/internal/accounts", headers=headers)
-                results["internal_accounts"] = {"status": r.status_code, "body": r.text[:300]}
-            except Exception as e:
-                results["internal_accounts"] = {"error": str(e)}
-        return {"jwt_prefix": jwt[:30] + "...", "results": results}
-    except Exception as e:
-        return {"error": str(e)}
 
 
 @app.post("/debug/webhook-test")

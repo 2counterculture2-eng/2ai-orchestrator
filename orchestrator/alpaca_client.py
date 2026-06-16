@@ -108,10 +108,13 @@ class AlpacaInternalClient:
             try:
                 r = await self._http.post(
                     AUTHX_URL,
-                    content=f"grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion={id_token}",
+                    data={
+                        "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                        "assertion": id_token,
+                    },
                     headers={
-                        "Content-Type": "application/x-www-form-urlencoded",
                         "Origin": "https://app.alpaca.markets",
+                        "Referer": "https://app.alpaca.markets/",
                     },
                     timeout=15,
                 )
