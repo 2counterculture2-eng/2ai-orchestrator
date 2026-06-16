@@ -18,5 +18,10 @@
     "user": "（デプロイ確認待ち → GitHub永続化に変更済み）",
     "ai": "SQLiteはredeploy毎にリセットされる問題を発見。GitHub data/pc_turns.jsonに永続化するよう変更。デプロイ完了。",
     "timestamp": "2026-06-16T23:56:28.525677+00:00"
+  },
+  {
+    "user": "（デプロイ完了確認 → GitHub pc-turns動作OK）",
+    "ai": "GitHub永続化+JST表示+絵文字フォーマット全て確認済み。LINEで直近3ターンがJST時刻付きで正しく表示される。",
+    "timestamp": "2026-06-16T23:56:42.119943+00:00"
   }
 ]
