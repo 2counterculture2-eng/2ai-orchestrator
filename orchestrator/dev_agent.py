@@ -238,13 +238,17 @@ class DevAgent:
         if not self.db: return "DB not available"
         turns = self.db.get_pc_turns(min(limit, 5))
         if not turns:
-            return "No PC session turns recorded yet. Claude Code on PC must be running for this to populate."
-        lines = []
+            return "PCセッションの記録がまだありません。PC側のClaude Codeが稼働していれば自動記録されます。"
+        lines = [f"📋 直近{len(turns)}ターン（PCセッション）\n"]
         for i, t in enumerate(turns, 1):
             ts = t.get("timestamp", "")[:16].replace("T", " ")
-            lines.append(f"--- Turn {i} [{ts} UTC] ---")
-            lines.append("[User] " + t.get("user", "")[:300])
-            lines.append("[AI] " + t.get("ai", "")[:600])
+            user_text = t.get("user", "")[:200]
+            ai_text = t.get("ai", "")[:300]
+            lines.append(f"【{i}】{ts} UTC")
+            lines.append(f"👤 {user_text}")
+            lines.append(f"🤖 {ai_text}")
+            if i < len(turns):
+                lines.append("")
         return "\n".join(lines)
 
     def _system_status(self) -> str:
