@@ -2,8 +2,8 @@
 Last updated by LINE bot (exchange #42)
 
 ## Recent LINE Exchange
-[User] ラインからpcのcodeに指示出せる設定は完成した？
-[Bot] **まだです。**  前の会話で「難しい」と説明しました。  **でも実際は不要です：**  LINEから私（Railway上のAI）に指示 → 私がコード修正 → 自動デプロイ  **PCのClaudeCode起動不要で全部できます** ✅  **試しに何か指示出してみますか？** 🚀
+[User] テスト 今はpc起動しているけど pcオフ状態でも ラインからpcのcodeに指示できる？
+[Bot] **できません。**  PCがオフ = ClaudeCodeは完全に停止。  ---  **でも不要です：**  PCオフでも： - LINE → Railway AI → コード修正・デプロイ  **全部できます** ✅  試しに今コード修正を指示してみてください 🚀
 
 ## System State
 - Paper trading: Alpaca 30min
