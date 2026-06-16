@@ -36,39 +36,32 @@ def _gen_totp(secret: str) -> str:
     return str(code % 1_000_000).zfill(6)
 
 
-def _sync_cognito_auth(email: str, password: str, mfa_secret: str) -> str:
-    """Blocking Cognito auth — run via run_in_executor."""
-    import boto3
-    from botocore.config import Config
+COGNITO_POOL_ID = "us-east-1_CZEBlNVuv"
+AUTHX_URL = "https://authx.alpaca.markets/v1/oauth2/token"
 
-    cognito = boto3.client(
-        "cognito-idp",
-        region_name=COGNITO_REGION,
-        config=Config(signature_version="unsigned"),
-    )
+
+def _sync_srp_auth(email: str, password: str, mfa_secret: str) -> str:
+    """SRP-based Cognito auth via pycognito — same flow as Alpaca browser app."""
+    from pycognito import Cognito
+    from pycognito.exceptions import SoftwareTokenMFAChallengeException
+
     # Wait for a safe TOTP window (not within 3s of expiry)
     secs = int(time.time()) % 30
     if secs > 27:
         time.sleep(33 - secs)
 
-    resp = cognito.initiate_auth(
-        ClientId=COGNITO_CLIENT_ID,
-        AuthFlow="USER_PASSWORD_AUTH",
-        AuthParameters={"USERNAME": email, "PASSWORD": password},
-    )
-    if resp.get("ChallengeName") == "SOFTWARE_TOKEN_MFA":
+    user = Cognito(COGNITO_POOL_ID, COGNITO_CLIENT_ID, username=email)
+    try:
+        user.authenticate(password=password)
+    except SoftwareTokenMFAChallengeException:
         totp = _gen_totp(mfa_secret)
-        mfa_resp = cognito.respond_to_auth_challenge(
-            ClientId=COGNITO_CLIENT_ID,
-            ChallengeName="SOFTWARE_TOKEN_MFA",
-            Session=resp["Session"],
-            ChallengeResponses={
-                "USERNAME": email,
-                "SOFTWARE_TOKEN_MFA_CODE": totp,
-            },
-        )
-        return mfa_resp["AuthenticationResult"]["IdToken"]
-    return resp["AuthenticationResult"]["IdToken"]
+        user.respond_to_software_token_mfa_challenge(totp)
+    return user.id_token
+
+
+def _sync_cognito_auth(email: str, password: str, mfa_secret: str) -> str:
+    """Alias kept for compatibility — delegates to SRP auth."""
+    return _sync_srp_auth(email, password, mfa_secret)
 
 
 DATA_BASE = "https://data.alpaca.markets/v2/stocks"
@@ -106,11 +99,31 @@ class AlpacaInternalClient:
         async with self._lock:
             if self._jwt and time.time() < self._jwt_expiry:
                 return
-            logger.info("Refreshing Alpaca Cognito JWT...")
+            logger.info("Refreshing Alpaca JWT via SRP auth...")
             loop = asyncio.get_event_loop()
-            self._jwt = await loop.run_in_executor(
-                None, _sync_cognito_auth, self.email, self.password, self.mfa_secret
+            id_token = await loop.run_in_executor(
+                None, _sync_srp_auth, self.email, self.password, self.mfa_secret
             )
+            # Exchange Cognito IdToken for Alpaca ES256 JWT (same as browser flow)
+            try:
+                r = await self._http.post(
+                    AUTHX_URL,
+                    content=f"grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion={id_token}",
+                    headers={
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Origin": "https://app.alpaca.markets",
+                    },
+                    timeout=15,
+                )
+                if r.status_code == 200:
+                    self._jwt = r.json()["access_token"]
+                    logger.info("Alpaca ES256 JWT obtained via SRP+authx")
+                else:
+                    logger.warning(f"authx exchange failed {r.status_code}, using IdToken directly")
+                    self._jwt = id_token
+            except Exception as e:
+                logger.warning(f"authx exchange error: {e}, using IdToken directly")
+                self._jwt = id_token
             self._jwt_expiry = time.time() + TOKEN_TTL
             logger.info("Alpaca JWT refreshed, valid for ~55 min")
 
