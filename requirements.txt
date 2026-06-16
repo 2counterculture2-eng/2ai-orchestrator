@@ -23,7 +23,7 @@ apscheduler==3.10.4
 # AWS / Cognito auth (for Alpaca internal auth flow)
 boto3==1.35.0
 botocore==1.35.0
-pycognito==2023.5.1
+pycognito==2023.5.0
 
 # Data / utilities
 python-dotenv==1.0.1
