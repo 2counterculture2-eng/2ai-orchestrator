@@ -85,7 +85,8 @@ class AlpacaInternalClient:
         self.api_key = api_key
         self.secret_key = secret_key
         self._has_keys = bool(api_key and secret_key)
-        self._jwt: Optional[str] = None
+        self._jwt: Optional[str] = None       # ES256 JWT (data API)
+        self._id_token: Optional[str] = None  # raw Cognito IdToken (order placement)
         self._jwt_expiry: float = 0.0
         self._lock = asyncio.Lock()
         self._http = httpx.AsyncClient(timeout=30)
@@ -131,6 +132,7 @@ class AlpacaInternalClient:
             except Exception as e:
                 logger.warning(f"authx exchange error: {e}, using IdToken directly")
                 self._jwt = id_token
+            self._id_token = id_token  # always keep raw IdToken for order placement
             self._jwt_expiry = time.time() + TOKEN_TTL
             logger.info("Alpaca JWT refreshed, valid for ~55 min")
 
@@ -213,12 +215,18 @@ class AlpacaInternalClient:
             r.raise_for_status()
             return r.json()
         await self._ensure_jwt()
+        # Use raw Cognito IdToken for order placement (ES256 JWT returns 403)
+        order_token = self._id_token or self._jwt
+        order_headers = {
+            "Authorization": f"Bearer {order_token}",
+            "Content-Type": "application/json",
+            "Origin": "https://app.alpaca.markets",
+            "Referer": "https://app.alpaca.markets/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }
         r = await self._http.post(
             f"{INTERNAL_BASE}/paper_accounts/{self.paper_account_id}/orders",
-            headers={**self._headers(),
-                     "Origin": "https://app.alpaca.markets",
-                     "Referer": "https://app.alpaca.markets/",
-                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            headers=order_headers,
             json=body,
         )
         r.raise_for_status()
