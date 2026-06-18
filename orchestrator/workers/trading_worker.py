@@ -1,18 +1,18 @@
 """
-trading_worker.py v5
+trading_worker.py v5.3
 RSI2 Mean Reversion + 50-day MA trend filter strategy.
-Market data: Alpaca data API (primary, confirmed working, ~137 bars).
+Market data: Alpha Vantage (primary, daily cache), Alpaca JWT (fallback), Stooq (fallback).
 Entry: close > MA50 AND RSI(2) < 5
 Exit: RSI(2) > 65
 Universe: SPY, QQQ, IWM (liquid ETFs - lower individual stock risk)
 Claude: sentiment filter only - NOT the primary trade decision maker.
 Phase 1: paper trading only (Alpaca paper account).
-Note: Using MA50 instead of MA200 because Alpaca returns ~137 bars max.
 """
 import logging
 import json
 import httpx
 import statistics
+import os
 from datetime import datetime, timezone
 from typing import Optional, List, Dict
 
@@ -121,6 +121,50 @@ async def fetch_closes_alpaca(symbol: str, alpaca_client) -> Optional[List[float
         return None
 
 
+async def fetch_closes_alpha_vantage(symbol: str, http: httpx.AsyncClient, api_key: str) -> Optional[List[float]]:
+    """Alpha Vantage daily bars with file-based daily cache. 3 symbols x 1/day = 3 calls/day (limit 25)."""
+    if not api_key:
+        return None
+    cache_dir = "/tmp/av_cache"
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    cache_file = f"{cache_dir}/{symbol}_{today}.json"
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        if os.path.exists(cache_file):
+            with open(cache_file) as f:
+                closes = json.load(f)
+            if len(closes) >= MIN_DAYS_REQUIRED:
+                logger.info(f"Alpha Vantage cache hit {symbol}: {len(closes)} bars")
+                return closes
+    except Exception:
+        pass
+    try:
+        url = "https://www.alphavantage.co/query"
+        params = {"function": "TIME_SERIES_DAILY", "symbol": symbol,
+                  "outputsize": "compact", "apikey": api_key}
+        r = await http.get(url, params=params, timeout=20)
+        if r.status_code != 200:
+            logger.warning(f"Alpha Vantage {symbol}: HTTP {r.status_code}")
+            return None
+        data = r.json()
+        ts = data.get("Time Series (Daily)", {})
+        if not ts:
+            note = data.get("Note", data.get("Information", ""))
+            logger.warning(f"Alpha Vantage {symbol}: no data. {note[:100]}")
+            return None
+        closes = [float(v["4. close"]) for v in list(ts.values())]  # newest first
+        if len(closes) < MIN_DAYS_REQUIRED:
+            logger.warning(f"Alpha Vantage {symbol}: only {len(closes)} bars")
+            return None
+        with open(cache_file, "w") as f:
+            json.dump(closes, f)
+        logger.info(f"Alpha Vantage {symbol}: {len(closes)} bars (cached)")
+        return closes
+    except Exception as e:
+        logger.warning(f"Alpha Vantage {symbol} failed: {e}")
+        return None
+
+
 async def fetch_closes_stooq_http(symbol: str, http: httpx.AsyncClient) -> Optional[List[float]]:
     """Fallback: Direct Stooq HTTP."""
     try:
@@ -160,6 +204,7 @@ class TradingWorker(BaseWorker):
     def __init__(self, config: Config, db: LearningDB):
         super().__init__(config, db)
         self._http = httpx.AsyncClient(timeout=30)
+        self._av_key = config.alpha_vantage_api_key
         self._alpaca: Optional[AlpacaInternalClient] = None
         if config.alpaca_email and config.alpaca_password and config.alpaca_mfa_secret:
             self._alpaca = AlpacaInternalClient(
@@ -273,9 +318,15 @@ class TradingWorker(BaseWorker):
         for symbol in symbols[:3]:
             closes = None
 
-            if self._alpaca:
+            # Primary: Alpha Vantage (daily cache, 3 calls/day max)
+            if self._av_key:
+                closes = await fetch_closes_alpha_vantage(symbol, self._http, self._av_key)
+
+            # Fallback 1: Alpaca data API via JWT
+            if closes is None and self._alpaca:
                 closes = await fetch_closes_alpaca(symbol, self._alpaca)
 
+            # Fallback 2: Stooq HTTP
             if closes is None:
                 closes = await fetch_closes_stooq_http(symbol, self._http)
 
