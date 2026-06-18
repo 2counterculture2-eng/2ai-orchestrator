@@ -46,6 +46,11 @@ class Config:
     bitget_api_secret: str = ""
     bitget_passphrase: str = ""
 
+    # Trading APIs - IBKR (Interactive Brokers)
+    ibkr_gateway_url: str = ""       # CP Gateway URL, e.g. https://localhost:5000/v1/api
+    ibkr_account_id: str = ""        # Paper or live account ID
+    ibkr_paper: bool = True          # True = paper trading
+
     # Market data
     alpha_vantage_api_key: str = ""
 
@@ -91,6 +96,9 @@ class Config:
             bitget_api_key=os.getenv("BITGET_API_KEY", ""),
             bitget_api_secret=os.getenv("BITGET_API_SECRET", ""),
             bitget_passphrase=os.getenv("BITGET_PASSPHRASE", ""),
+            ibkr_gateway_url=os.getenv("IBKR_GATEWAY_URL", ""),
+            ibkr_account_id=os.getenv("IBKR_ACCOUNT_ID", ""),
+            ibkr_paper=os.getenv("IBKR_PAPER", "true").lower() != "false",
             alpha_vantage_api_key=os.getenv("ALPHA_VANTAGE_API_KEY", ""),
             smartcat_api_key=os.getenv("SMARTCAT_API_KEY", ""),
             smartcat_account_id=os.getenv("SMARTCAT_ACCOUNT_ID", ""),

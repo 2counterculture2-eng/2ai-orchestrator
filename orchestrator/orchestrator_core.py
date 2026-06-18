@@ -23,7 +23,7 @@ import anthropic
 from .config import Config
 from .learning import LearningDB
 from .line_bot import LineBot
-from .workers import TranslationWorker, TradingWorker, GmoCoinWorker, BitgetWorker, TaskResult
+from .workers import TranslationWorker, TradingWorker, GmoCoinWorker, BitgetWorker, IBKRWorker, TaskResult
 from .dev_agent import DevAgent
 
 logger = logging.getLogger(__name__)
@@ -81,6 +81,7 @@ class OrchestratorCore:
         self.trading_worker = TradingWorker(config, db)
         self.gmo_coin_worker = GmoCoinWorker(config, db)
         self.bitget_worker = BitgetWorker(config, db)
+        self.ibkr_worker = IBKRWorker(config, db)
         self.dev_agent = DevAgent(self.claude, db)
         self._running = False
         self._task_queue: asyncio.Queue = asyncio.Queue()
@@ -101,6 +102,7 @@ class OrchestratorCore:
         await self.trading_worker.close()
         await self.gmo_coin_worker.close()
         await self.bitget_worker.close()
+        await self.ibkr_worker.close()
         await self.dev_agent.close()
         await self.line.close()
         logger.info("OrchestratorCore stopped")
@@ -184,6 +186,11 @@ class OrchestratorCore:
                         await self.enqueue_task({
                             "type": "trading", "channel": "bitget",
                             "action": "analyze", "symbols": CRYPTO_SYMBOLS_BITGET,
+                        })
+                    if self.config.ibkr_gateway_url and self.config.ibkr_account_id:
+                        await self.enqueue_task({
+                            "type": "trading", "channel": "ibkr",
+                            "action": "analyze", "symbols": TRADE_SYMBOLS,
                         })
             except Exception as e:
                 logger.exception(f"Trading loop error: {e}")
@@ -271,6 +278,8 @@ class OrchestratorCore:
             return await self.gmo_coin_worker.execute(task)
         if channel == "bitget":
             return await self.bitget_worker.execute(task)
+        if channel == "ibkr":
+            return await self.ibkr_worker.execute(task)
         routed = self._route_task(task.get("description", str(task)))
         task["channel"] = routed.split("_", 1)[-1] if "_" in routed else routed
         task["type"] = routed.split("_", 1)[0] if "_" in routed else "unknown"
