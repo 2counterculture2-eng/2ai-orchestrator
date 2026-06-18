@@ -215,7 +215,11 @@ class AlpacaInternalClient:
         await self._ensure_jwt()
         r = await self._http.post(
             f"{INTERNAL_BASE}/paper_accounts/{self.paper_account_id}/orders",
-            headers=self._headers(), json=body,
+            headers={**self._headers(),
+                     "Origin": "https://app.alpaca.markets",
+                     "Referer": "https://app.alpaca.markets/",
+                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            json=body,
         )
         r.raise_for_status()
         return r.json()
@@ -227,7 +231,9 @@ class AlpacaInternalClient:
         await self._ensure_jwt()
         r = await self._http.delete(
             f"{INTERNAL_BASE}/paper_accounts/{self.paper_account_id}/orders/{order_id}",
-            headers=self._headers(),
+            headers={**self._headers(),
+                     "Origin": "https://app.alpaca.markets",
+                     "Referer": "https://app.alpaca.markets/"},
         )
         return r.status_code in (200, 204)
 
