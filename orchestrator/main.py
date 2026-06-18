@@ -680,6 +680,27 @@ async def _handle_yt_command(message: str, reply_token: str):
             await _line.send_text("YouTubeAI エラー: " + str(e)[:200], user_id=uid)
 
 
+@app.post("/yt-direct")
+async def yt_direct(request: Request):
+    """Call YouTubeAIAgent directly without LINE (for internal/Claude use)."""
+    body = await request.json()
+    message = body.get("message", "")
+    if not message:
+        raise HTTPException(status_code=400, detail="message required")
+    if not _yt_agent:
+        return {"error": "yt_agent not initialized"}
+    try:
+        response = await _yt_agent.run(message)
+        uid = _db.get_config("line_user_id") if _db else None
+        if uid:
+            for i in range(0, len(response), 2000):
+                await _line.send_text(response[i:i+2000], user_id=uid)
+        return {"response": response}
+    except Exception as e:
+        logger.error("yt-direct error: %s", e)
+        return {"error": str(e)[:500]}
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "8000"))
