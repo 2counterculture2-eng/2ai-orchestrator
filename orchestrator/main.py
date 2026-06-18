@@ -25,6 +25,7 @@ from .line_bot import LineBot
 from .orchestrator_core import OrchestratorCore
 from .market_data import MarketDataClient
 from .workers.claude_code_agent import ClaudeCodeAgent
+from .yt_agent import YouTubeAIAgent
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -39,6 +40,7 @@ _line: LineBot = None
 _orchestrator: OrchestratorCore = None
 _market: MarketDataClient = None
 _code_agent: ClaudeCodeAgent = None
+_yt_agent: YouTubeAIAgent = None
 
 
 RAILWAY_TOKEN = os.getenv("RAILWAY_TOKEN", "")
@@ -74,13 +76,15 @@ async def persist_line_user_id(user_id: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _config, _db, _line, _orchestrator, _market, _code_agent
+    global _config, _db, _line, _orchestrator, _market, _code_agent, _yt_agent
     _config = Config.from_env()
     _db = LearningDB(_config.db_path)
     _line = LineBot(_config)
     _orchestrator = OrchestratorCore(_config, _db, _line)
     _market = MarketDataClient(_config.alpha_vantage_api_key)
     _code_agent = ClaudeCodeAgent(_config.anthropic_api_key, _config.github_token)
+    import anthropic as _anthropic
+    _yt_agent = YouTubeAIAgent(_anthropic.Anthropic(api_key=_config.anthropic_api_key))
     # Restore line_user_id from env var if DB is empty (survives redeploys)
     if _config.line_user_id and not _db.get_config("line_user_id"):
         _db.set_config("line_user_id", _config.line_user_id)
@@ -150,11 +154,17 @@ async def line_webhook(
                 background_tasks.add_task(persist_line_user_id, user_id)
             text = event["message"]["text"]
             reply_token = event.get("replyToken", "")
-            command, args = _line.parse_command(text)
-            if command == "instruction":
-                background_tasks.add_task(_handle_line_instruction, args, reply_token, user_id)
+            # Route "yt: ..." or "youtube: ..." to YouTubeAI agent
+            text_lower = text.strip().lower()
+            if text_lower.startswith("yt:") or text_lower.startswith("youtube:"):
+                yt_msg = text.split(":", 1)[1].strip()
+                background_tasks.add_task(_handle_yt_command, yt_msg, reply_token)
             else:
-                background_tasks.add_task(_orchestrator.handle_line_command, command, args, reply_token)
+                command, args = _line.parse_command(text)
+                if command == "instruction":
+                    background_tasks.add_task(_handle_line_instruction, args, reply_token, user_id)
+                else:
+                    background_tasks.add_task(_orchestrator.handle_line_command, command, args, reply_token)
 
     return JSONResponse(content={"status": "ok"})
 
@@ -649,6 +659,25 @@ async def _handle_line_instruction(instruction: str, reply_token: str, user_id: 
         uid = user_id or (_db.get_config("line_user_id") if _db else None)
         if uid:
             await _line.send_text("エラー: " + str(e)[:200], user_id=uid)
+
+
+async def _handle_yt_command(message: str, reply_token: str):
+    """Route 'yt: <message>' to YouTubeAIAgent."""
+    if not _yt_agent:
+        await _line.reply(reply_token, "YouTubeAI agent not initialized.")
+        return
+    await _line.reply(reply_token, "YouTubeAI: 処理中...")
+    try:
+        response = await _yt_agent.run(message)
+        uid = _db.get_config("line_user_id") if _db else None
+        if uid:
+            for i in range(0, len(response), 2000):
+                await _line.send_text(response[i:i+2000], user_id=uid)
+    except Exception as e:
+        logger.error("YouTubeAIAgent error: %s", e)
+        uid = _db.get_config("line_user_id") if _db else None
+        if uid:
+            await _line.send_text("YouTubeAI エラー: " + str(e)[:200], user_id=uid)
 
 
 if __name__ == "__main__":
