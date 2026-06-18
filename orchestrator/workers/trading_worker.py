@@ -431,8 +431,19 @@ class TradingWorker(BaseWorker):
                 cost_usd=claude_cost,
             )
         except httpx.HTTPStatusError as e:
+            sc = e.response.status_code
+            if sc in (401, 403):
+                # Internal API auth changed — log signal, wait for standard API keys (post-KYC)
+                logger.warning(f"Order {sc} on internal API — signal logged, awaiting standard API keys")
+                return TaskResult(
+                    success=True, task_id=task_id,
+                    data={"signal": best_sig, "executed": False, "symbol": best_sym,
+                          "notional": notional, "mode": "signal_only",
+                          "reason": f"Order API returned {sc} — standard API keys required"},
+                    cost_usd=claude_cost,
+                )
             return TaskResult(success=False, task_id=task_id,
-                              error=f"Order failed: {e.response.status_code} {e.response.text}")
+                              error=f"Order failed: {sc} {e.response.text}")
 
     async def _alpaca_close_all(self, task_id: str) -> TaskResult:
         try:
