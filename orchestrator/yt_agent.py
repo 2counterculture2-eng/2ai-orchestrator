@@ -46,7 +46,9 @@ YT_SYSTEM_PROMPT = (
     "- ASCII/English only in source code files.\n"
     "- Respond in Japanese to Takuma.\n"
     "- Keep LINE responses under 1200 chars.\n"
-    "- After modifying pipeline files, note that user needs to pull and run locally (no Railway deploy for YouTubeAI yet).\n"
+    "- Use generate_video tool when Takuma says 'make a video', 'generate video', or similar.\n"
+    "- Use check_video_status to check if a video generation is done.\n"
+    "- Video artifacts are downloadable from GitHub Actions for 7 days after generation.\n"
 )
 
 YT_TOOLS = [
@@ -58,6 +60,13 @@ YT_TOOLS = [
      "input_schema": {"type": "object", "properties": {
          "path": {"type": "string"}, "content": {"type": "string"}, "commit_message": {"type": "string"}
      }, "required": ["path", "content", "commit_message"]}},
+    {"name": "generate_video", "description": "Trigger GitHub Actions to generate a YouTube video (runs in cloud, no PC needed)",
+     "input_schema": {"type": "object", "properties": {
+         "niche": {"type": "string", "description": "Video niche e.g. 'personal finance', 'investing', 'AI tools'"},
+         "title": {"type": "string", "description": "Optional custom video title"}
+     }, "required": []}},
+    {"name": "check_video_status", "description": "Check status of latest GitHub Actions video generation run",
+     "input_schema": {"type": "object", "properties": {}, "required": []}},
 ]
 
 
@@ -115,12 +124,49 @@ class YouTubeAIAgent:
 
     async def _execute_tool(self, name: str, inputs: dict) -> str:
         try:
-            if name == "read_file":   return await self._read_file(inputs["path"])
-            if name == "list_files":  return await self._list_files(inputs["path"])
-            if name == "write_file":  return await self._write_file(inputs["path"], inputs["content"], inputs["commit_message"])
+            if name == "read_file":       return await self._read_file(inputs["path"])
+            if name == "list_files":      return await self._list_files(inputs["path"])
+            if name == "write_file":      return await self._write_file(inputs["path"], inputs["content"], inputs["commit_message"])
+            if name == "generate_video":  return await self._trigger_video_generation(inputs.get("niche", "personal finance"), inputs.get("title", ""))
+            if name == "check_video_status": return await self._check_actions_status()
             return "Unknown tool: " + name
         except Exception as e:
             return "Tool error (" + name + "): " + str(e)
+
+    async def _trigger_video_generation(self, niche: str, title: str) -> str:
+        gh = {"Authorization": "token " + GITHUB_TOKEN, "Accept": "application/vnd.github.v3+json"}
+        payload = {
+            "ref": "master",
+            "inputs": {"niche": niche, "title": title or ""}
+        }
+        r = await self._http.post(
+            GITHUB_API + "/repos/" + YT_REPO + "/actions/workflows/generate_video.yml/dispatches",
+            headers=gh, json=payload
+        )
+        if r.status_code == 204:
+            return "GitHub Actions triggered! Video generation started for niche: " + niche + ". ETA ~5 min. Use check_video_status to track progress."
+        return "Trigger failed " + str(r.status_code) + ": " + r.text[:200]
+
+    async def _check_actions_status(self) -> str:
+        gh = {"Authorization": "token " + GITHUB_TOKEN, "Accept": "application/vnd.github.v3+json"}
+        r = await self._http.get(
+            GITHUB_API + "/repos/" + YT_REPO + "/actions/runs?per_page=3",
+            headers=gh
+        )
+        if r.status_code != 200:
+            return "Status check failed: " + r.text[:200]
+        runs = r.json().get("workflow_runs", [])
+        if not runs:
+            return "No runs found."
+        lines = []
+        for run in runs:
+            status = run.get("status", "?")
+            conclusion = run.get("conclusion") or "in_progress"
+            run_id = run.get("id", "")
+            num = run.get("run_number", "?")
+            url = f"https://github.com/{YT_REPO}/actions/runs/{run_id}"
+            lines.append(f"Run #{num}: {status}/{conclusion} -> {url}")
+        return "\n".join(lines)
 
     async def _read_file(self, path: str) -> str:
         gh = {"Authorization": "token " + GITHUB_TOKEN, "Accept": "application/vnd.github.v3+json"}
