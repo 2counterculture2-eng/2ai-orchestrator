@@ -1,10 +1,5 @@
 [
   {
-    "user": "あと時間表示を日本時間にできる？",
-    "ai": "UTCをJST(+9h)に変換するよう修正してデプロイ済み。表示例: 06/17 08:39 JST。",
-    "timestamp": "2026-06-16T23:56:27.336230+00:00"
-  },
-  {
     "user": "（デプロイ確認待ち → GitHub永続化に変更済み）",
     "ai": "SQLiteはredeploy毎にリセットされる問題を発見。GitHub data/pc_turns.jsonに永続化するよう変更。デプロイ完了。",
     "timestamp": "2026-06-16T23:56:28.525677+00:00"
@@ -48,5 +43,10 @@
     "user": "YouTubeAIセッションでLINE移植が認識されていなかった（スクショ確認）",
     "ai": "原因: YouTubeAIのbriefing.md/CLAUDE.mdにLINE移植の記載がなかった。両ファイルを更新してGitHubにpush済み(114dbcd)。次回YouTubeAIセッションからはCLAUDE.mdにLINE連携説明が記載されている。",
     "timestamp": "2026-06-18T23:29:00.231991+00:00"
+  },
+  {
+    "user": "2AIに特化した内容以外の汎用ルール・技術をYouTubeAIに移植されたか確認",
+    "ai": "PCセッションターン記録(pc-turn POST)・5ターン毎briefing.md読込・セッション更新推奨ルールをYouTubeAI CLAUDE.mdに追加してGitHub APIでpush済み(34f11716)。グローバルルール(Rule1/50/41等)は~/.claude/CLAUDE.mdで全プロジェクト自動適用済みのため重複不要。",
+    "timestamp": "2026-06-19T00:04:49.031375+00:00"
   }
 ]
