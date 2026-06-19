@@ -1,10 +1,5 @@
 [
   {
-    "user": "マネックス証券のアカウントがあるからそこで日本、米国株のリアルトレードを君が全自動で行えないの？",
-    "ai": "マネックス証券は個人向け取引APIなし。自動トレード不可。IBKR・moomoo証券が代替候補。拡張機能は2AIプロジェクトへの影響ほぼなし。",
-    "timestamp": "2026-06-18T21:58:54.980090+00:00"
-  },
-  {
     "user": "なぜ止まった？",
     "ai": "IBKRワーカー(v1)実装完了。ibkr_worker.py・config.py・orchestartor_core.py更新、Railwayデプロイ完了、briefing.mdセッション8向け更新完了。IBKR口座開設待ちの状態。",
     "timestamp": "2026-06-18T22:12:54.240650+00:00"
@@ -48,5 +43,10 @@
     "user": "v3.1デプロイ完了確認",
     "ai": "Railway v3.1 (GMO+Bitget+YT) デプロイ成功。正しいサービスはorchestratorサービス(155db9ac)。LINEからyt:コマンドで動画生成が可能になりました。",
     "timestamp": "2026-06-19T10:22:03.607096+00:00"
+  },
+  {
+    "user": "YouTubeAI LINE Bot作成",
+    "ai": "YouTubeAI LINE Bot(@303sxvia)作成完了。Messaging API有効、Webhook設定済み、Railway環境変数設定完了。",
+    "timestamp": "2026-06-19T11:33:06.269019+00:00"
   }
 ]
