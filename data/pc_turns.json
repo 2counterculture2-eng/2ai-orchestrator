@@ -1,10 +1,5 @@
 [
   {
-    "user": "（デプロイ完了確認 → GitHub pc-turns動作OK）",
-    "ai": "GitHub永続化+JST表示+絵文字フォーマット全て確認済み。LINEで直近3ターンがJST時刻付きで正しく表示される。",
-    "timestamp": "2026-06-16T23:56:42.119943+00:00"
-  },
-  {
     "user": "ありがとう",
     "ai": "どういたしまして。",
     "timestamp": "2026-06-16T23:57:45.835763+00:00"
@@ -48,5 +43,10 @@
     "user": "YouTubeAIに移植された？（スクショ確認）",
     "ai": "移植確認済み。YouTubeAIのClaude CodeがCLAUDE.mdの3ルール（PCターン記録・5ターンbriefing読込・セッション更新推奨）を認識して今から適用すると明言。移植完了。",
     "timestamp": "2026-06-19T00:23:14.029108+00:00"
+  },
+  {
+    "user": "続けて（IBKR申込みコンテキスト継続）",
+    "ai": "IBKR申込み完了！Application Review->Application StatusへApplication送信。TOTPシークレット5Z2SCOGHM4BU67KZ2BNSJL2ZTIVEMCGEを取得・CLAUDE.mdに保存。次回ログインは自律化可能。",
+    "timestamp": "2026-06-19T00:44:04.135105+00:00"
   }
 ]
