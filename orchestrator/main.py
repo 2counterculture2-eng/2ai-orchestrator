@@ -101,7 +101,7 @@ app = FastAPI(title="2AI Orchestrator", version="1.0.0", lifespan=lifespan)
 
 @app.get("/")
 async def health():
-    return {"status": "ok", "service": "2AI Orchestrator v3 (GMO+Bitget)"}
+    return {"status": "ok", "service": "2AI Orchestrator v3.1 (GMO+Bitget+YT)"}
 
 
 @app.get("/status")
