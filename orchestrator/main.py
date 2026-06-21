@@ -245,6 +245,37 @@ async def get_pc_turns(limit: int = 3):
     return {"turns": result, "count": len(result)}
 
 
+@app.post("/api/sms-code")
+async def receive_sms_code(request: Request):
+    """Receive SMS code forwarded from iOS Shortcuts. Stores latest code in DB."""
+    body = await request.json()
+    code = body.get("code", "").strip()
+    sender = body.get("from", "unknown")
+    if not code:
+        raise HTTPException(status_code=400, detail="code required")
+    import re
+    digits = re.findall(r'\d{6}', code)
+    extracted = digits[0] if digits else code[:6]
+    from datetime import datetime, timezone
+    _db.set_config("latest_sms_code", extracted)
+    _db.set_config("latest_sms_sender", sender)
+    _db.set_config("latest_sms_time", datetime.now(timezone.utc).isoformat())
+    logger.info(f"SMS code received from {sender}: {extracted}")
+    return {"status": "ok", "code": extracted}
+
+
+@app.get("/api/sms-code")
+async def get_sms_code():
+    """Return latest SMS code (polled by ibkr_sms_auto_login.py)."""
+    if not _db:
+        raise HTTPException(status_code=503, detail="Not initialized")
+    return {
+        "code": _db.get_config("latest_sms_code"),
+        "from": _db.get_config("latest_sms_sender"),
+        "time": _db.get_config("latest_sms_time"),
+    }
+
+
 @app.get("/debug/send-test")
 async def debug_send_test():
     if not _line or not _config or not _orchestrator:
@@ -678,6 +709,86 @@ async def _handle_yt_command(message: str, reply_token: str):
         uid = _db.get_config("line_user_id") if _db else None
         if uid:
             await _line.send_text("YouTubeAI エラー: " + str(e)[:200], user_id=uid)
+
+
+YT_LINE_CHANNEL_SECRET = os.getenv("YT_LINE_CHANNEL_SECRET", "")
+YT_LINE_CHANNEL_ACCESS_TOKEN = os.getenv("YT_LINE_CHANNEL_ACCESS_TOKEN", "")
+YT_LINE_USER_ID = os.getenv("YT_LINE_USER_ID", "")
+
+
+@app.post("/yt-webhook")
+async def yt_line_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    x_line_signature: str = Header(default=""),
+):
+    """Dedicated LINE webhook for YouTubeAI bot. All messages go directly to yt_agent."""
+    import hmac, hashlib, base64, json
+
+    body = await request.body()
+
+    # Verify signature with YT channel secret
+    if YT_LINE_CHANNEL_SECRET:
+        expected = base64.b64encode(
+            hmac.new(YT_LINE_CHANNEL_SECRET.encode("utf-8"), body, hashlib.sha256).digest()  # type: ignore
+        ).decode("utf-8")
+        if not hmac.compare_digest(expected, x_line_signature):
+            raise HTTPException(status_code=400, detail="Invalid YT LINE signature")
+
+    payload = json.loads(body)
+    events = payload.get("events", [])
+
+    for event in events:
+        event_type = event.get("type")
+
+        if event_type == "follow":
+            user_id = event.get("source", {}).get("userId", "")
+            reply_token = event.get("replyToken", "")
+            if user_id:
+                background_tasks.add_task(_yt_send_to_user, user_id,
+                    "YouTubeAI Botへようこそ！\n"
+                    "メッセージを送るだけで動画生成・状況確認ができます。\n"
+                    "例：「personal financeで動画を作って」")
+
+        elif event_type == "message" and event["message"]["type"] == "text":
+            user_id = event.get("source", {}).get("userId", "")
+            text = event["message"]["text"]
+            reply_token = event.get("replyToken", "")
+            background_tasks.add_task(_handle_yt_webhook_message, text, reply_token, user_id)
+
+    return JSONResponse(content={"status": "ok"})
+
+
+async def _yt_send_to_user(user_id: str, message: str):
+    """Send message to YT LINE bot user."""
+    if not YT_LINE_CHANNEL_ACCESS_TOKEN:
+        logger.warning("YT_LINE_CHANNEL_ACCESS_TOKEN not set")
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                "https://api.line.me/v2/bot/message/push",
+                headers={"Authorization": f"Bearer {YT_LINE_CHANNEL_ACCESS_TOKEN}",
+                         "Content-Type": "application/json"},
+                json={"to": user_id, "messages": [{"type": "text", "text": message}]},
+            )
+    except Exception as e:
+        logger.error("YT LINE push error: %s", e)
+
+
+async def _handle_yt_webhook_message(text: str, reply_token: str, user_id: str):
+    """Route all messages from YouTubeAI LINE bot directly to yt_agent."""
+    if not _yt_agent:
+        await _yt_send_to_user(user_id, "YouTubeAI agent not initialized.")
+        return
+    try:
+        await _yt_send_to_user(user_id, "処理中...")
+        response = await _yt_agent.run(text)
+        for i in range(0, len(response), 2000):
+            await _yt_send_to_user(user_id, response[i:i+2000])
+    except Exception as e:
+        logger.error("YT webhook agent error: %s", e)
+        await _yt_send_to_user(user_id, "エラー: " + str(e)[:200])
 
 
 @app.post("/yt-direct")
