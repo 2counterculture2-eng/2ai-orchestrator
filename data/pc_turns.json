@@ -1,10 +1,5 @@
 [
   {
-    "user": "なぜ止まった？",
-    "ai": "IBKRワーカー(v1)実装完了。ibkr_worker.py・config.py・orchestartor_core.py更新、Railwayデプロイ完了、briefing.mdセッション8向け更新完了。IBKR口座開設待ちの状態。",
-    "timestamp": "2026-06-18T22:12:54.240650+00:00"
-  },
-  {
     "user": "YouTubeAIプロジェクトのLINEシステム移植を依頼した",
     "ai": "YouTubeAI LINE移植完了。GitHub repo作成(youtube-ai-pipeline)、yt_agent.py実装、main.pyにyt:プレフィックスルーティング追加、Railwayデプロイ中(2cf434c)。LINEで「yt: パイプライン状態を教えて」と送信可能になった。",
     "timestamp": "2026-06-18T23:20:30.041156+00:00"
@@ -48,5 +43,10 @@
     "user": "YouTubeAI LINE Bot作成",
     "ai": "YouTubeAI LINE Bot(@303sxvia)作成完了。Messaging API有効、Webhook設定済み、Railway環境変数設定完了。",
     "timestamp": "2026-06-19T11:33:06.269019+00:00"
+  },
+  {
+    "user": "アイコンアップロード完了",
+    "ai": "YouTubeAI LINE Botのプロフィールアイコンをアップロード完了。React fiberのonChangeを直接呼ぶ方法でクロップダイアログを開き、PUT /api/cms/v2/account-page/1976352825947244/profile で200が返された。avatarSrcがprofile.line-scdn.netに変わり設定完了。",
+    "timestamp": "2026-06-21T21:29:48.087785+00:00"
   }
 ]
