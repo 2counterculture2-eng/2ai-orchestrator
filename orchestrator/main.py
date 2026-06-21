@@ -156,7 +156,16 @@ async def line_webhook(
             reply_token = event.get("replyToken", "")
             # Route "yt: ..." or "youtube: ..." to YouTubeAI agent
             text_lower = text.strip().lower()
-            if text_lower.startswith("yt:") or text_lower.startswith("youtube:"):
+            # Detect 6-digit IBKR SMS code reply
+            import re as _re
+            if _re.fullmatch(r'\d{6}', text.strip()):
+                from datetime import datetime, timezone as _tz
+                _db.set_config("latest_sms_code", text.strip())
+                _db.set_config("latest_sms_sender", "LINE")
+                _db.set_config("latest_sms_time", datetime.now(_tz.utc).isoformat())
+                background_tasks.add_task(_line.reply, reply_token, "IBKR認証コード受信。ログイン処理中...")
+                logger.info(f"IBKR SMS code received via LINE: {text.strip()}")
+            elif text_lower.startswith("yt:") or text_lower.startswith("youtube:"):
                 yt_msg = text.split(":", 1)[1].strip()
                 background_tasks.add_task(_handle_yt_command, yt_msg, reply_token)
             else:
@@ -243,6 +252,20 @@ async def get_pc_turns(limit: int = 3):
     turns, _ = await _github_read_pc_turns()
     result = turns[-(min(limit, 10)):]
     return {"turns": result, "count": len(result)}
+
+
+@app.post("/api/notify-line")
+async def notify_line(request: Request):
+    """Send a LINE push message to the registered user (used by ibkr_sms_auto_login.py)."""
+    body = await request.json()
+    msg = body.get("message", "")
+    if not msg:
+        raise HTTPException(status_code=400, detail="message required")
+    user_id = _db.get_config("line_user_id") if _db else None
+    if not user_id:
+        raise HTTPException(status_code=503, detail="no LINE user registered")
+    await _line.send_text(msg, user_id=user_id)
+    return {"status": "ok"}
 
 
 @app.post("/api/sms-code")

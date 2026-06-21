@@ -1,77 +1,115 @@
 """
-ibkr_sms_auto_login.py v2
-iOS Shortcuts -> Railway /api/sms-code -> IBKR auto-login + document upload.
+ibkr_sms_auto_login.py v3
+Flow: IBKR login -> LINE notification "send SMS code" -> user replies 6 digits ->
+      Railway /api/sms-code -> auto-complete login -> document upload page opens.
 """
 from selenium import webdriver
 from selenium.webdriver.edge.options import Options
 from selenium.webdriver.common.by import By
-import time, urllib.request, json, pyotp
+import time, urllib.request, urllib.parse, json, datetime
 
 IBKR_USER = "takuma2ai9"
 IBKR_PASS = "Ibkr2AI2025!"
 IBKR_LOGIN_URL = "https://www.interactivebrokers.com/sso/Login?action=DOC"
-RAILWAY_SMS_URL = "https://orchestrator-production-61d8.up.railway.app/api/sms-code"
+RAILWAY_BASE = "https://orchestrator-production-61d8.up.railway.app"
+LINE_USER_ID = "Ud3be14241e193a4a7bf80a1b10a004c0"
+LINE_TOKEN_ENV = "LINE_CHANNEL_ACCESS_TOKEN"
 
 
-def wait_for_sms_code(timeout=180):
-    """Poll Railway endpoint until a fresh SMS code appears (within last 5 min)."""
-    import datetime
-    print(f"Waiting for IBKR SMS code via Railway (max {timeout}s)...")
-    deadline = time.time() + timeout
-    # Clear any stale code first
+def _send_line(msg: str):
+    import os
+    token = os.getenv(LINE_TOKEN_ENV, "")
+    if not token:
+        # Read from Railway env via API
+        try:
+            r = urllib.request.urlopen(RAILWAY_BASE + "/debug/line-user-id", timeout=5)
+        except Exception:
+            pass
+        return
+    data = json.dumps({"to": LINE_USER_ID, "messages": [{"type": "text", "text": msg}]}).encode()
+    req = urllib.request.Request(
+        "https://api.line.me/v2/bot/message/push",
+        data=data,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        method="POST"
+    )
     try:
-        r = urllib.request.urlopen(RAILWAY_SMS_URL, timeout=5)
-        prev = json.loads(r.read()).get("time")
+        urllib.request.urlopen(req, timeout=5)
+    except Exception as e:
+        print(f"LINE send error: {e}")
+
+
+def _notify_via_railway(msg: str):
+    """Use Railway debug endpoint to trigger LINE notification."""
+    try:
+        data = json.dumps({"message": msg}).encode()
+        req = urllib.request.Request(
+            RAILWAY_BASE + "/api/notify-line",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        urllib.request.urlopen(req, timeout=5)
     except Exception:
-        prev = None
+        pass
+
+
+def wait_for_sms_code(timeout=180) -> str:
+    """Poll Railway endpoint until a fresh SMS code arrives (within last 3 min)."""
+    print(f"Waiting for IBKR SMS code via LINE reply (max {timeout}s)...")
+    deadline = time.time() + timeout
+    # Record current time to only accept new codes
+    sent_at = datetime.datetime.now(datetime.timezone.utc)
 
     while time.time() < deadline:
         try:
-            r = urllib.request.urlopen(RAILWAY_SMS_URL, timeout=5)
+            r = urllib.request.urlopen(RAILWAY_BASE + "/api/sms-code", timeout=5)
             data = json.loads(r.read())
-            code = data.get("code")
-            ts = data.get("time")
-            if code and ts and ts != prev:
-                # Check freshness: within last 5 minutes
-                t = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                age = (datetime.datetime.now(datetime.timezone.utc) - t).total_seconds()
-                if age < 300:
-                    print(f"SMS code received: {code} (age: {age:.0f}s)")
+            code = data.get("code", "")
+            ts_str = data.get("time", "")
+            if code and ts_str:
+                ts = datetime.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                if ts > sent_at:
+                    print(f"Code received: {code}")
                     return code
-        except Exception as e:
+        except Exception:
             pass
         time.sleep(3)
-    return None
+    return ""
 
 
-def ibkr_login_with_sms():
+def ibkr_login_with_sms_via_line():
     opts = Options()
     opts.add_argument("--no-sandbox")
     driver = webdriver.Edge(options=opts)
     try:
+        # Step 1: Open IBKR login
         driver.get(IBKR_LOGIN_URL)
         time.sleep(3)
-
         driver.find_element(By.NAME, "username").send_keys(IBKR_USER)
         driver.find_element(By.NAME, "password").send_keys(IBKR_PASS)
         driver.find_element(By.XPATH, '//button[@type="submit"]').click()
         time.sleep(4)
-        print("Credentials submitted — SMS will be sent to phone ending 9000")
+        print("Credentials submitted. Notifying via LINE...")
 
+        # Step 2: Notify LINE to send SMS code
+        _notify_via_railway("IBKRからSMSコードが届いたら、このLINEに6桁の数字だけ送ってください。")
+
+        # Step 3: Wait for code from Railway
         sms_code = wait_for_sms_code(timeout=180)
         if not sms_code:
-            print("ERROR: SMS code not received within 3 minutes")
+            print("ERROR: No code received within 3 minutes")
             driver.quit()
             return None
 
-        # Enter code in temp-response field
+        # Step 4: Enter code in IBKR form
         driver.execute_script("""
-            var fields = ['temp-response', 'bronze-response', 'silver-response'];
-            for(var name of fields) {
-                var f = document.querySelector('[name=' + name + ']');
-                if(f) {
-                    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
-                    setter.call(f, arguments[0]);
+            var names = ['temp-response','bronze-response','silver-response'];
+            for(var n of names){
+                var f=document.querySelector('[name='+n+']');
+                if(f){
+                    var s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
+                    s.call(f,arguments[0]);
                     f.dispatchEvent(new Event('input',{bubbles:true}));
                     f.dispatchEvent(new Event('change',{bubbles:true}));
                     break;
@@ -81,16 +119,19 @@ def ibkr_login_with_sms():
         driver.execute_script("document.querySelector('button[type=submit],button.btn-primary').click();")
         time.sleep(5)
 
-        if "Login" not in driver.current_url:
-            print("LOGIN SUCCESS! URL:", driver.current_url)
+        url = driver.current_url
+        if "Login" not in url:
+            print("LOGIN SUCCESS! Opening document upload page...")
+            _notify_via_railway("IBKRログイン成功！書類アップロードページを開きました。")
             driver.get("https://www.interactivebrokers.com/portal/#/settings/user?selectedTab=docs")
             time.sleep(3)
-            print("Document upload page ready in browser.")
             return driver
         else:
-            print("Login failed. Body:", driver.find_element(By.TAG_NAME,"body").text[:300])
+            body = driver.find_element(By.TAG_NAME, "body").text[:200]
+            print("Login failed:", body)
             driver.quit()
             return None
+
     except Exception as e:
         import traceback; traceback.print_exc()
         driver.quit()
@@ -98,7 +139,7 @@ def ibkr_login_with_sms():
 
 
 if __name__ == "__main__":
-    result = ibkr_login_with_sms()
+    result = ibkr_login_with_sms_via_line()
     if result:
         input("Browser open at document upload page. Press Enter to close.")
         result.quit()
