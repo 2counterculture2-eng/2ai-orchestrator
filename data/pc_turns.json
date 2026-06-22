@@ -1,10 +1,5 @@
 [
   {
-    "user": "2AIに特化した内容以外の汎用ルール・技術をYouTubeAIに移植されたか確認",
-    "ai": "PCセッションターン記録(pc-turn POST)・5ターン毎briefing.md読込・セッション更新推奨ルールをYouTubeAI CLAUDE.mdに追加してGitHub APIでpush済み(34f11716)。グローバルルール(Rule1/50/41等)は~/.claude/CLAUDE.mdで全プロジェクト自動適用済みのため重複不要。",
-    "timestamp": "2026-06-19T00:04:49.031375+00:00"
-  },
-  {
     "user": "YouTubeAIに移植された？（スクショ確認）",
     "ai": "移植確認済み。YouTubeAIのClaude CodeがCLAUDE.mdの3ルール（PCターン記録・5ターンbriefing読込・セッション更新推奨）を認識して今から適用すると明言。移植完了。",
     "timestamp": "2026-06-19T00:23:14.029108+00:00"
@@ -48,5 +43,10 @@
     "user": "status check",
     "ai": "checking yt_agent",
     "timestamp": "2026-06-22T21:46:46.780330+00:00"
+  },
+  {
+    "user": "YouTubeAI botに直接メッセージ送って",
+    "ai": "broadcast API実装完了。reply token+broadcast+push fallback対応。user_idはwebhook受信時にDB保存。",
+    "timestamp": "2026-06-22T22:16:48.282916+00:00"
   }
 ]
