@@ -96,6 +96,13 @@ class LearningDB:
                 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
                 CREATE INDEX IF NOT EXISTS idx_tasks_channel ON tasks(channel);
                 CREATE INDEX IF NOT EXISTS idx_revenue_channel ON revenue_log(channel);
+
+                CREATE TABLE IF NOT EXISTS yt_line_history (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_msg   TEXT NOT NULL,
+                    ai_resp    TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
             """)
 
     def _now(self) -> str:
@@ -255,6 +262,28 @@ class LearningDB:
         with self._conn() as c:
             row = c.execute("SELECT value FROM config WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
+
+    # ---- YT LINE history ----
+
+    def save_yt_line_message(self, user_msg: str, ai_resp: str) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO yt_line_history (user_msg, ai_resp, created_at) VALUES (?,?,?)",
+                (user_msg[:2000], ai_resp[:4000], self._now()),
+            )
+            # keep only last 100 entries
+            c.execute(
+                "DELETE FROM yt_line_history WHERE id NOT IN "
+                "(SELECT id FROM yt_line_history ORDER BY id DESC LIMIT 100)"
+            )
+
+    def get_yt_line_history(self, limit: int = 20) -> list:
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT user_msg, ai_resp, created_at FROM yt_line_history ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in reversed(rows)]
 
     # ---- Recent events (for admin dashboard) ----
 

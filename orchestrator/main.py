@@ -845,6 +845,8 @@ async def _handle_yt_webhook_message(text: str, reply_token: str, user_id: str):
     try:
         await _yt_reply(reply_token, "処理中...")
         response = await _yt_agent.run(text)
+        if _db:
+            _db.save_yt_line_message(text, response)
         for i in range(0, len(response), 2000):
             await _yt_send_to_user(user_id, response[i:i+2000])
     except Exception as e:
@@ -882,6 +884,15 @@ async def yt_debug():
         "yt_line_user_id": uid or "not saved yet",
         "yt_token_set": bool(YT_LINE_CHANNEL_ACCESS_TOKEN),
     }
+
+
+@app.get("/yt-history")
+async def yt_history(limit: int = 20):
+    """Return recent YT LINE conversation history for PC session awareness."""
+    if not _db:
+        return {"history": []}
+    entries = _db.get_yt_line_history(limit=min(limit, 50))
+    return {"history": entries, "count": len(entries)}
 
 
 if __name__ == "__main__":
