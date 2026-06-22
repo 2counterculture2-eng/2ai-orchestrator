@@ -1,10 +1,5 @@
 [
   {
-    "user": "YouTubeAIセッションでLINE移植が認識されていなかった（スクショ確認）",
-    "ai": "原因: YouTubeAIのbriefing.md/CLAUDE.mdにLINE移植の記載がなかった。両ファイルを更新してGitHubにpush済み(114dbcd)。次回YouTubeAIセッションからはCLAUDE.mdにLINE連携説明が記載されている。",
-    "timestamp": "2026-06-18T23:29:00.231991+00:00"
-  },
-  {
     "user": "2AIに特化した内容以外の汎用ルール・技術をYouTubeAIに移植されたか確認",
     "ai": "PCセッションターン記録(pc-turn POST)・5ターン毎briefing.md読込・セッション更新推奨ルールをYouTubeAI CLAUDE.mdに追加してGitHub APIでpush済み(34f11716)。グローバルルール(Rule1/50/41等)は~/.claude/CLAUDE.mdで全プロジェクト自動適用済みのため重複不要。",
     "timestamp": "2026-06-19T00:04:49.031375+00:00"
@@ -48,5 +43,10 @@
     "user": "ログインの方法はSMS認証しかないの？君がいつも自動でログインする方法があればそうしてほしい",
     "ai": "Email 2FA発見。Gmail MCPで完全自動化可能。silver(SMS)/gold(TOTP)に加えEmail選択肢あり。アカウント一時ロック中のため10分待機後にibkr_email_login.pyで再実行予定。",
     "timestamp": "2026-06-22T21:29:03.868492+00:00"
+  },
+  {
+    "user": "status check",
+    "ai": "checking yt_agent",
+    "timestamp": "2026-06-22T21:46:46.780330+00:00"
   }
 ]
