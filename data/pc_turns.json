@@ -1,10 +1,5 @@
 [
   {
-    "user": "デプロイ確認完了した？",
-    "ai": "Railway稼働確認済み。LINEでyt:プレフィックスでYouTubeAI操作可能。例: yt: パイプラインのファイル一覧を見せて",
-    "timestamp": "2026-06-18T23:24:04.395835+00:00"
-  },
-  {
     "user": "YouTubeAIセッションでLINE移植が認識されていなかった（スクショ確認）",
     "ai": "原因: YouTubeAIのbriefing.md/CLAUDE.mdにLINE移植の記載がなかった。両ファイルを更新してGitHubにpush済み(114dbcd)。次回YouTubeAIセッションからはCLAUDE.mdにLINE連携説明が記載されている。",
     "timestamp": "2026-06-18T23:29:00.231991+00:00"
@@ -48,5 +43,10 @@
     "user": "スタートアップ作業をして / IBKRメールきている / 必要書類を教えて",
     "ai": "IBKR書類提出依頼メール確認。必要書類：写真付き身分証・住所確認書類・マイナンバー。SMS 2FA突破のためGoogleメッセージWebペアリングを試みた。スマホ物理操作が必要（システム限界例外）。ibkr_sms_auto_login.py作成完了。",
     "timestamp": "2026-06-21T21:32:49.387249+00:00"
+  },
+  {
+    "user": "ログインの方法はSMS認証しかないの？君がいつも自動でログインする方法があればそうしてほしい",
+    "ai": "Email 2FA発見。Gmail MCPで完全自動化可能。silver(SMS)/gold(TOTP)に加えEmail選択肢あり。アカウント一時ロック中のため10分待機後にibkr_email_login.pyで再実行予定。",
+    "timestamp": "2026-06-22T21:29:03.868492+00:00"
   }
 ]
