@@ -782,10 +782,29 @@ async def yt_line_webhook(
     return JSONResponse(content={"status": "ok"})
 
 
+async def _yt_broadcast(message: str):
+    """Broadcast to all YT bot followers (no user_id needed)."""
+    if not YT_LINE_CHANNEL_ACCESS_TOKEN:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                "https://api.line.me/v2/bot/message/broadcast",
+                headers={"Authorization": f"Bearer {YT_LINE_CHANNEL_ACCESS_TOKEN}",
+                         "Content-Type": "application/json"},
+                json={"messages": [{"type": "text", "text": message[:2000]}]},
+            )
+    except Exception as e:
+        logger.error("YT broadcast error: %s", e)
+
+
 async def _yt_send_to_user(user_id: str, message: str):
-    """Send message to YT LINE bot user."""
+    """Send message to YT LINE bot user. Falls back to broadcast if no user_id."""
     if not YT_LINE_CHANNEL_ACCESS_TOKEN:
         logger.warning("YT_LINE_CHANNEL_ACCESS_TOKEN not set")
+        return
+    if not user_id:
+        await _yt_broadcast(message)
         return
     try:
         async with httpx.AsyncClient(timeout=10) as client:
@@ -797,15 +816,34 @@ async def _yt_send_to_user(user_id: str, message: str):
             )
     except Exception as e:
         logger.error("YT LINE push error: %s", e)
+        await _yt_broadcast(message)
+
+
+async def _yt_reply(reply_token: str, message: str):
+    """Reply using reply token (free plan compatible)."""
+    if not YT_LINE_CHANNEL_ACCESS_TOKEN or not reply_token:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                "https://api.line.me/v2/bot/message/reply",
+                headers={"Authorization": f"Bearer {YT_LINE_CHANNEL_ACCESS_TOKEN}",
+                         "Content-Type": "application/json"},
+                json={"replyToken": reply_token, "messages": [{"type": "text", "text": message[:2000]}]},
+            )
+    except Exception as e:
+        logger.error("YT LINE reply error: %s", e)
 
 
 async def _handle_yt_webhook_message(text: str, reply_token: str, user_id: str):
     """Route all messages from YouTubeAI LINE bot directly to yt_agent."""
+    if user_id and _db:
+        _db.set_config("yt_line_user_id", user_id)
     if not _yt_agent:
-        await _yt_send_to_user(user_id, "YouTubeAI agent not initialized.")
+        await _yt_reply(reply_token, "YouTubeAI agent not initialized.")
         return
     try:
-        await _yt_send_to_user(user_id, "処理中...")
+        await _yt_reply(reply_token, "処理中...")
         response = await _yt_agent.run(text)
         for i in range(0, len(response), 2000):
             await _yt_send_to_user(user_id, response[i:i+2000])
@@ -825,14 +863,25 @@ async def yt_direct(request: Request):
         return {"error": "yt_agent not initialized"}
     try:
         response = await _yt_agent.run(message)
-        uid = _db.get_config("line_user_id") if _db else None
-        if uid:
+        yt_user_id = body.get("user_id") or YT_LINE_USER_ID
+        if yt_user_id:
             for i in range(0, len(response), 2000):
-                await _line.send_text(response[i:i+2000], user_id=uid)
+                await _yt_send_to_user(yt_user_id, response[i:i+2000])
         return {"response": response}
     except Exception as e:
         logger.error("yt-direct error: %s", e)
         return {"error": str(e)[:500]}
+
+
+@app.get("/yt-debug")
+async def yt_debug():
+    """Debug endpoint for YouTubeAI bot status."""
+    uid = _db.get_config("yt_line_user_id") if _db else None
+    return {
+        "yt_agent_initialized": _yt_agent is not None,
+        "yt_line_user_id": uid or "not saved yet",
+        "yt_token_set": bool(YT_LINE_CHANNEL_ACCESS_TOKEN),
+    }
 
 
 if __name__ == "__main__":
