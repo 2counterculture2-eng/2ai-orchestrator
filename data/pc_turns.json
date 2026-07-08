@@ -1,10 +1,5 @@
 [
   {
-    "user": "v3.1デプロイ完了確認",
-    "ai": "Railway v3.1 (GMO+Bitget+YT) デプロイ成功。正しいサービスはorchestratorサービス(155db9ac)。LINEからyt:コマンドで動画生成が可能になりました。",
-    "timestamp": "2026-06-19T10:22:03.607096+00:00"
-  },
-  {
     "user": "YouTubeAI LINE Bot作成",
     "ai": "YouTubeAI LINE Bot(@303sxvia)作成完了。Messaging API有効、Webhook設定済み、Railway環境変数設定完了。",
     "timestamp": "2026-06-19T11:33:06.269019+00:00"
@@ -48,5 +43,10 @@
     "user": "IBKRの永続自動ログイン設定して",
     "ai": "Cookie永続化+Gmail自動読取+スケジュールタスク実装。次回1回のEmail 2FAログイン後は完全自動化。ibkr_auto_login.py+ibkr_gmail_cookie_reader.py+IBKRセッションキーパー4時間タスク登録完了。",
     "timestamp": "2026-07-08T21:58:50.017960+00:00"
+  },
+  {
+    "user": "続きから - IBKR自動ログイン設定",
+    "ai": "TOTP診断完了。bronze-response(Authenticator App)はIBKR側未登録のため非表示。TOTP秘密鍵5Z2SC...をIBKR側で有効化するにはSMS 1回ログインが必要。ibkr_sms_then_totp_setup.pyを作成。実行すればSMSコード入力後に自動でTOTP設定まで完了し、以後は完全自律ログイン可能になる。",
+    "timestamp": "2026-07-08T22:34:34.063039+00:00"
   }
 ]
